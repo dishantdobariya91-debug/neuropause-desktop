@@ -44,6 +44,14 @@ npx vitest run --exclude '**/releaseDiscipline.test.ts'   # main, minus the paus
 npx vitest run --config vitest.ui.config.ts               # UI
 ```
 
+## Mac validation (operator, 2026-09-03) — GREEN
+
+- Full UI suite: **455/455**.
+- Full main suite (excluding the two class-D `releaseDiscipline` paused-release guards): **all passed** — clean of S81 failures.
+- Real-Electron acceptance journey `e2e/s81InventoryIntelligenceJourney.e2e.cjs`: **passed** on the alternate release build (`out-seam-s81`), fresh isolated profile, every step through the governed `enterprise:module.*` bridge — create → receive → governed reservation → ATP 70 → open PO → ATP 120 (incoming added) → canonical goods receipt (`receiveGoods`→`post`) → ATP 120 with on-hand 150 / incoming 0 (no double count) → aging future(90+)/today(fresh) → ledger read-only → tenant-scoped reads.
+
+The two `releaseDiscipline` failures remain the standing paused-release-track state (class D, not S81).
+
 ## Status
 
-**S81 non-frozen core + FG-S81 registration COMPLETE and committed; real-Electron journey PENDING Mac.** Release track PAUSED. S82 not started.
+**S81 = GREEN — Inventory Aging + ATP VERIFIED end-to-end in the real Electron runtime.** Non-frozen core + FG-S81 registration (4 additive lines, one frozen file) + real-Electron journey all proven. `certification/baseline.json` untouched. Release track PAUSED. S82 not started.
