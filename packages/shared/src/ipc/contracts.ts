@@ -487,6 +487,7 @@ export const M365ActionExecuteRequest = z.object({
    * exactly why the field has to be declared here rather than smuggled through).
    */
   correlationId: z.string().trim().min(1).max(128).optional(),
+  confirmedAt: z.string().datetime({ offset: true }).optional().catch(undefined),
 });
 
 /** P2.4 — ask the existing AI engine to draft/summarize (never sends; returns text for the user to confirm). */
