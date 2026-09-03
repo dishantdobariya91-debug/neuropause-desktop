@@ -30,6 +30,7 @@ import { readBackReconciler } from '../reconciliation/readBackReconcilerInstance
 // read-back reconciler it reads, classifies and maps; it never executes and never resolves a HOLD. Registered
 // here (non-frozen) so `startAll` — already called from frozen runtimeCore — starts it with zero frozen lines.
 import { heldCommandHoldService } from '../decisions/heldCommandHoldService';
+import { kpiIntelligenceCapture } from '../analyticsPlatform/kpiIntelligenceInstance';
 
 const log = createLogger('services');
 
@@ -146,6 +147,10 @@ class ServiceManager {
       // ERP Session 44 — surfaces crash-orphaned governed-command HOLDs (S40) into the canonical Hold
       // Center so an operator can resolve them. Reads + maps only; never executes, never resolves a HOLD.
       heldCommandHoldService,
+      // S80 — governed KPI intelligence: per-tenant capture of immutable KPI snapshots + exception
+      // evaluation (inventory safety-stock). Read-only over the product master; writes only its own
+      // snapshot/exception stores; deny-by-default on no tenant. Never executes a business command.
+      kpiIntelligenceCapture,
     ];
   }
 

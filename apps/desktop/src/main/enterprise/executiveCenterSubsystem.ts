@@ -11,6 +11,8 @@ import type { SecureHandlerDef } from '../ipc/secureBridge';
 import { buildFounderProactiveItems } from '../ai/founderProactive';
 import { buildOrgIntelligenceItems, collectOrgHealthInputs } from './orgIntelligence';
 import { composeExecutiveSnapshot, type TimelineEntryLite } from './executiveCenter';
+import { currentPrincipal } from '../tenancy/backgroundPrincipal';
+import { readKpiIntelligence } from '../analyticsPlatform/kpiIntelligenceInstance';
 import { getEnterpriseTimeline } from '../timeline';
 import { healthHistoryStore } from './healthHistoryInstance';
 import { decisionStore } from './decisionInstance';
@@ -538,6 +540,9 @@ export function initExecutiveCenter(): ExecutiveCenterSubsystem {
     void healthHistoryStore
       .record(snap.orgHealth.overall, snap.orgHealth.engineering, nowMs)
       .catch((err) => log.warn('health-history record failed', { err: String(err) }));
+    // S80 — surface the governed KPI intelligence (persisted snapshots + active exceptions) for the
+    // active tenant only. Read-only; tenant resolved in main (never renderer-supplied); null when unresolved.
+    snap.kpiIntelligence = readKpiIntelligence(currentPrincipal()?.tenantId ?? null);
     return snap;
   };
 

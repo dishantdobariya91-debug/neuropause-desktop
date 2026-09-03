@@ -35,6 +35,9 @@ export interface KpiNotificationIntent {
 export class KpiSnapshotStore {
   constructor(private readonly store: DurableJsonStore<KpiSnapshot>) {}
 
+  /** Hydrate from disk so a sync read sees persisted history after a restart. */
+  async load(): Promise<void> { await this.store.load(); }
+
   /**
    * Record an observation. IDEMPOTENT + IMMUTABLE: if a snapshot with this deterministic id
    * already exists it is returned unchanged (never overwritten) — historical observations do not mutate.
