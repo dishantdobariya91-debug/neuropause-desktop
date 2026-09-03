@@ -82,7 +82,9 @@ The common blocker for 1–5 is the **approval control-plane** (tenant-configura
 
 ## 7 · Completion criteria (§19) status
 
-GREEN now: Sales/O2C · Procurement/P2P (minus D12) · Finance/GL (minus bank-recon reversal) · Administration/security · AI advisory boundary · tenant isolation · audit · idempotency · outbox/event durability · backup/recovery (S66) · restart durability · renderer-bypass closure · **CRM (Gate 2) · HR+Expenses (Gate 3) · Warehouse movement lifecycle (Gate 4) · Manufacturing (Gate 5)** — journey-GREEN at the governed layer with Mac harnesses pending execution. NOT yet GREEN to the whole-journey bar: Maintenance · Projects whole-user E2E journeys; plus the POLICY-BLOCKED authority workflows (§5) that gate payroll/variance/scrap sign-off, D12 PO approve-send, and bank-reconciled reversal.
+GREEN now: Sales/O2C · Procurement/P2P (minus D12) · Finance/GL (minus bank-recon reversal) · Administration/security · AI advisory boundary · tenant isolation · audit · idempotency · outbox/event durability · backup/recovery (S66) · restart durability · renderer-bypass closure · **CRM (Gate 2) · HR+Expenses (Gate 3) · Warehouse movement lifecycle (Gate 4) · Manufacturing (Gate 5) · Maintenance (S74) · Projects (S75)** — all six operational domains journey-GREEN at the governed layer. Remaining to the whole-journey bar: real-user E2E acceptance on macOS (the six `e2e/s7x*Journey.e2e.cjs` harnesses), plus the POLICY-BLOCKED authority workflows (§5) that gate payroll/variance/scrap sign-off, D12 PO approve-send, bank-reconciled reversal, and the maintenance/project GL memos.
+
+**S76 real-Electron acceptance (ee220b0):** all six journey harnesses are **NOT RUN — ENVIRONMENT-BLOCKED (Classification C)** — the acceptance environment is Linux aarch64 with a macOS-only Electron dist and no runnable Electron, so no genuine UI journey could launch; governed-layer pins reconfirmed 18/18. Real-user E2E remains PENDING the operator's Mac run. See `SESSION76-WHOLE-APP-REAL-ELECTRON-ACCEPTANCE.md`. No status was upgraded to full-E2E-GREEN without Mac evidence.
 
 ## FINAL STATUS
 
