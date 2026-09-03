@@ -76,7 +76,7 @@ The common blocker for 1–5 is the **approval control-plane** (tenant-configura
 | Expenses | claim→approve (creator≠approver SoD)→reimburse→accounting | expense-claim action + SoD (S57) | ✓ | covered in HR Gate 3 | **JOURNEY GREEN** (SoD accrual proven in Gate 3) |
 | Manufacturing | BOM→production order→execution→quality→costing | — | ✓ | **journey pin + harness (Gate 5)** | **JOURNEY GREEN** (governed production lifecycle; Mac harness pending) *(variance/scrap-approval = D10/D8 POLICY-BLOCKED)* |
 | Maintenance | asset→fault/PM→work-order (assign→start→complete→verify)→parts/cost→history | framework-governed actions | ✓ | **journey pin + harness (S74)** | **JOURNEY GREEN** (corrective+preventive lifecycle, machine status, immutable history, real parts consumption; Mac harness pending) *(maintenance-cost→GL = POLICY-BLOCKED, memo'd)* |
-| Projects | project→task→time→billing-run→invoice | billing→invoice via spine | ✓ | — | GOVERNED-CRUD · **E2E-PENDING** |
+| Projects | project→task→time→billing-run→draft invoice→close | draft invoice → certified S28 chain | ✓ | **journey pin + harness (S75)** | **JOURNEY GREEN** (portfolio→billing→draft invoice, closure immutability, idempotency, cross-module tenant-scoped refs; Mac harness pending) *(project-cost/revenue→GL = POLICY-BLOCKED, memo'd)* |
 | Administration/Security | users/roles/permissions/tenancy/audit/backup/outbox | governed reads + tenancy | ✓ | tenantOwnership + DR | **GREEN** (isolation/audit/backup/restart) |
 | AI | analyze/recommend/summarize/draft (advisory) | propose-only boundary | ✓ (zero-runtime-import pinned) | brainPropose | **GREEN** (advisory boundary; no governed AI execution enabled) |
 
