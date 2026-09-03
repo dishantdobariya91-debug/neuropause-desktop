@@ -21,6 +21,7 @@ import { productFromRecord } from '@neuropause/shared';
 import { createLogger } from '../logger';
 import type { BackgroundService } from '../services/serviceManager';
 import { forEachTenantBackground } from '../enterprise/index';
+import { currentPrincipal } from '../tenancy/backgroundPrincipal';
 import { productModule } from '../enterprise/modules/inventory/productModuleInstance';
 import { DurableJsonStore } from '../platform/persistence/durableJsonStore';
 import {
@@ -68,6 +69,21 @@ async function captureForScope(scope: { tenantId: string | null; workspaceId: st
  */
 function deliverIntent(n: KpiNotificationIntent): void {
   log.info('KPI exception notification intent', { exceptionId: n.exceptionId, status: n.status, dedupeKey: n.dedupeKey });
+}
+
+/**
+ * FG-S80b — governed ON-DEMAND capture for the CURRENT principal. This is the identity fix for
+ * the F-P45 finding: it captures under `currentPrincipal()` — the SAME tenant key the executive
+ * snapshot read (`readKpiIntelligence(currentPrincipal().tenantId)`) filters by — so what is written
+ * is what is read. Tenant is resolved in main; a renderer-supplied id is never consulted.
+ * Deny-by-default: no resolvable principal ⇒ refused, nothing captured. Idempotent + immutable
+ * (reuses `captureForScope` → `captureAndEvaluate`; deterministic per-period snapshot id).
+ */
+export async function captureForCurrentPrincipal(): Promise<{ ok: boolean; captured: boolean }> {
+  const p = currentPrincipal();
+  if (!p || !p.tenantId) return { ok: false, captured: false };
+  await captureForScope({ tenantId: p.tenantId, workspaceId: p.workspaceId ?? null });
+  return { ok: true, captured: true };
 }
 
 /** Sync read-model for the Executive Center — latest snapshots + active exceptions for one tenant. */

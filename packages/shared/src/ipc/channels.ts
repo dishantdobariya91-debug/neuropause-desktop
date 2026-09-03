@@ -137,6 +137,8 @@ export const IpcChannel = {
   // ── platform core (event bus / timeline / diagnostics) ──
   PlatformEmit: 'platform:emit',
   ExecutiveCenterSnapshot: 'executiveCenter:snapshot',
+  /** S80 (FG-S80b) — governed on-demand KPI capture for the CURRENT principal; renderer sends nothing. */
+  KpiCapture: 'kpi:capture',
   DecisionList: 'decisions:list',
   DecisionCreateFromRecommendation: 'decisions:createFromRecommendation',
   DecisionSetStatus: 'decisions:setStatus',
@@ -1275,6 +1277,7 @@ export const RUNTIME_INVOKABLE_CHANNELS: readonly IpcChannelName[] = [
   IpcChannel.PluginsContributions,
   IpcChannel.PlatformEmit,
   IpcChannel.ExecutiveCenterSnapshot,
+  IpcChannel.KpiCapture,
   IpcChannel.DecisionList,
   IpcChannel.DecisionCreateFromRecommendation,
   IpcChannel.DecisionSetStatus,

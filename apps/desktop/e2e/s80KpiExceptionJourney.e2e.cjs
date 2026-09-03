@@ -1,18 +1,14 @@
 #!/usr/bin/env node
 /**
- * ERP S80 — GOVERNED KPI SNAPSHOT + EXCEPTION INTELLIGENCE, real Electron journey.
+ * ERP S80 (FG-S80b) — GOVERNED KPI SNAPSHOT + EXCEPTION INTELLIGENCE, real Electron journey.
  *
- * Drives the REAL live path with NO new channel (per FG-S80):
+ * Drives the governed ON-DEMAND path:
  *   product below safety stock (governed create)
- *   → the governed BACKGROUND capture service ticks per-tenant (kpi-intelligence-capture)
- *   → KPI snapshot + exception evaluation
- *   → surfaced on the EXISTING `executiveCenter:snapshot` channel as `kpiIntelligence.activeExceptions`
- *   → restock (governed update) → next tick clears the exception (RECOVERED).
- *
- * S80-MAC FIX (class B): the prior harness invoked a non-existent `enterprise:kpi.capture`
- * channel — the implementation deliberately provides NO capture channel (capture is the
- * background service). This harness instead POLLS the executive snapshot across the background
- * tick. NOTE: capture is background-only (TICK_MS = 60_000), so this journey polls up to ~150s.
+ *   → `kpi:capture` (governed IPC, tenant resolved in main from the current principal)
+ *   → KPI snapshot + exception evaluation, written under the SAME principal the read uses
+ *   → exception visible on the existing `executiveCenter:snapshot` channel (kpiIntelligence)
+ *   → restock (governed update) → `kpi:capture` → exception RECOVERED / cleared
+ *   → repeated `kpi:capture` does not duplicate the historical observation.
  *
  * Build first:  env -u NP_E2E_BUILD npx electron-vite build --outDir "$PWD/out-seam-s80"
  * Run:          NODE_PATH="$(git rev-parse --show-toplevel)/node_modules" node e2e/s80KpiExceptionJourney.e2e.cjs
@@ -44,37 +40,43 @@ async function main() {
     const userData = await app.evaluate(({ app: a }) => a.getPath('userData'));
     assert(fs.realpathSync(userData) === fs.realpathSync(profile), 'ISOLATED profile is the running userData');
     for (const re of [/Enterprise OS ready/, /Runtime core ready/]) assert(await waitForLog(logs, re, 30_000), `BOOT_LOG ${re}`);
-    assert(await waitForLog(logs, /KPI intelligence capture started/, 30_000), 'BOOT_LOG capture service started');
 
     const bridge = (ch, payload) => win.evaluate(([c, p]) => window.neuropause.invoke(c, p), [ch, payload]);
     const create = (moduleId, fields) => bridge('enterprise:module.create', { moduleId, fields });
     const update = (moduleId, id, fields) => bridge('enterprise:module.update', { moduleId, id, fields });
-    const execSnapshot = () => bridge('executiveCenter:snapshot', {});
-    const KPI = 'inventory.belowSafetyStock';
-    // Poll the executive snapshot until predicate(activeExceptions) holds, across ≥2 background ticks.
-    const pollExc = async (pred, label, budgetMs = 150_000) => {
-      const end = Date.now() + budgetMs;
-      for (;;) {
-        const snap = await execSnapshot().catch(() => null);
-        const exc = (snap && snap.kpiIntelligence && snap.kpiIntelligence.activeExceptions) || [];
-        if (pred(exc)) return exc;
-        if (Date.now() > end) fail(`${label} (background capture did not surface within ${budgetMs}ms — see NOTE on background-only capture)`);
-        await sleep(3000);
-      }
+    const capture = () => bridge('kpi:capture', {});
+    const activeExc = async () => {
+      const snap = await bridge('executiveCenter:snapshot', {});
+      return (snap && snap.kpiIntelligence && snap.kpiIntelligence.activeExceptions) || [];
     };
+    const snapshots = async () => {
+      const snap = await bridge('executiveCenter:snapshot', {});
+      return (snap && snap.kpiIntelligence && snap.kpiIntelligence.snapshots) || [];
+    };
+    const KPI = 'inventory.belowSafetyStock';
 
     // 1. product below its own safety stock (existing master fields; governed create)
     const p = await create('inventory-products', { sku: 'WIDGET', name: 'Widget', safetyStock: 10, currentStock: 2 });
     assert(p.ok && p.record, 'product created below safety stock');
-    // 2/3/4. background capture → snapshot → EXCEPTION visible on the existing Executive Center channel
-    await pollExc((exc) => exc.some((e) => e.kpiKey === KPI && e.status === 'EXCEPTION'), 'safety-stock EXCEPTION visible in Executive Center');
-    out('PASS', 'safety-stock EXCEPTION surfaced on executiveCenter:snapshot.kpiIntelligence (governed background capture, no new channel)');
-    // 7/8. restock above safety → next tick clears the exception (RECOVERED → no longer active)
+    // 2. governed on-demand capture (tenant resolved in main; renderer supplies nothing)
+    const cap = await capture();
+    assert(cap && cap.ok && cap.captured, 'kpi:capture governed + captured (tenant from main principal)');
+    // 3/4. exception visible on the existing Executive Center channel
+    let exc = await activeExc();
+    assert(exc.some((e) => e.kpiKey === KPI && e.status === 'EXCEPTION'), 'safety-stock EXCEPTION visible in Executive Center');
+    // 5. repeated capture does NOT duplicate the historical observation (idempotent per period)
+    const before = (await snapshots()).filter((s) => s.kpiKey === KPI).length;
+    await capture();
+    const after = (await snapshots()).filter((s) => s.kpiKey === KPI).length;
+    assert(before === after, 'repeated capture creates no duplicate historical snapshot (idempotent)');
+    // 6/7. restock above safety → capture → exception RECOVERED / cleared
     assert((await update('inventory-products', p.record.id, { currentStock: 50 })).ok, 'restocked above safety stock');
-    await pollExc((exc) => !exc.some((e) => e.kpiKey === KPI && e.status === 'EXCEPTION'), 'exception RECOVERED / cleared after restock');
-    out('PASS', 'exception cleared after restock (recovery)');
+    const cap2 = await capture();
+    assert(cap2 && cap2.ok, 'kpi:capture after restock');
+    exc = await activeExc();
+    assert(!exc.some((e) => e.kpiKey === KPI && e.status === 'EXCEPTION'), 'exception RECOVERED / cleared after restock');
 
-    out('RESULT', 'S80 KPI/exception intelligence VERIFIED in the real Electron runtime (safety-stock → background capture → snapshot → Executive Center exception → recovery), no new channel');
+    out('RESULT', 'S80 KPI/exception intelligence VERIFIED in the real Electron runtime (below-safety → kpi:capture → Executive Center exception → idempotent recapture → restock → recover), governed on-demand, tenant from main');
   } finally {
     await Promise.race([app.close(), sleep(15_000)]).catch(() => undefined);
     try { app.process().kill('SIGKILL'); } catch { /* already dead */ }

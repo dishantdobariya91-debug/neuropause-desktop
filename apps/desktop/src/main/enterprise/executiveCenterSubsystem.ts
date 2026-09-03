@@ -12,7 +12,7 @@ import { buildFounderProactiveItems } from '../ai/founderProactive';
 import { buildOrgIntelligenceItems, collectOrgHealthInputs } from './orgIntelligence';
 import { composeExecutiveSnapshot, type TimelineEntryLite } from './executiveCenter';
 import { currentPrincipal } from '../tenancy/backgroundPrincipal';
-import { readKpiIntelligence } from '../analyticsPlatform/kpiIntelligenceInstance';
+import { readKpiIntelligence, captureForCurrentPrincipal } from '../analyticsPlatform/kpiIntelligenceInstance';
 import { getEnterpriseTimeline } from '../timeline';
 import { healthHistoryStore } from './healthHistoryInstance';
 import { decisionStore } from './decisionInstance';
@@ -551,6 +551,15 @@ export function initExecutiveCenter(): ExecutiveCenterSubsystem {
       channel: IpcChannel.ExecutiveCenterSnapshot,
       schema: EmptyRequest,
       handler: () => snapshot(),
+    },
+    {
+      // FG-S80b — governed on-demand KPI capture for the CURRENT principal (renderer sends
+      // nothing; tenant resolved in main). Fixes the F-P45 writer/reader-key finding: capture
+      // now writes under the same principal this subsystem's snapshot read filters by.
+      channel: IpcChannel.KpiCapture,
+      schema: EmptyRequest,
+      requireAuth: true,
+      handler: () => captureForCurrentPrincipal(),
     },
   ];
 
