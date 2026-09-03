@@ -54,6 +54,25 @@ Runnable here: typecheck node+web (0), eslint (clean), S80 tests (10/10), execut
 
 Mac validation only (full suites + build + real-Electron journey). Once the Mac run is green, S80 = GREEN; also the inbox-delivery follow-up (non-frozen) can wire the intents to the notifications inbox.
 
+## Mac validation run (operator, 2026-09-03, HEAD a78df40) — honest record
+
+| Item | Result |
+|---|---|
+| Build (`out-seam-s80`) | ✅ built |
+| Full main suite | **10200 passed / 2 failed / 7 skipped.** The **2 failures are `releaseDiscipline.test.ts` (Gate 27)** — "rc.24 tag already spent, 15 commits past it" + "CHANGELOG says no unreleased changes." These are the **PAUSED RELEASE-TRACK hygiene guards** (the standing S76 state), **class D — not S80, not a product defect.** Zero S80-related failures among the 10200. |
+| Full UI suite | ✅ **455/455** |
+| S80 Electron journey | ❌ **FAILED** at `FG-S80 capture channel present and captured` — the harness invoked `enterprise:kpi.capture`, **a channel that does not exist.** The implementation deliberately provides **no capture channel** (per "no new IPC channel"); capture is the background service. **Class B — harness defect, NOT a product defect.** |
+
+**Classification:** the main-suite 2 = **D (paused release track)**; the journey failure = **B (harness defect)**. **No class-A product defect appeared.** But the live path is therefore **UNVERIFIED end-to-end → S80 is NOT GREEN.**
+
+## S80-MAC fix (class B, harness only — no production source changed)
+
+`e2e/s80KpiExceptionJourney.e2e.cjs` corrected to drive the REAL no-channel path: seed a product below its own safety stock (governed create) → **poll the existing `executiveCenter:snapshot` channel** across the background capture ticks until `kpiIntelligence.activeExceptions` shows the `inventory.belowSafetyStock` EXCEPTION → restock (governed update) → poll until it clears (recovery). It also asserts the `KPI intelligence capture started` boot log. syntax-checked; **PENDING a Mac re-run.**
+
+## Design finding (recorded, not patched)
+
+Capture is **background-only** (`TICK_MS = 60_000`) with **no governed on-demand trigger** — by design, to honor "no new IPC channel." Consequences: (1) the E2E must wait/poll across a 60s+ tick (the fix does this, up to ~150s); (2) a user cannot force a KPI refresh from the UI. **If the Mac re-run still fails** — e.g. the background `forEachTenantBackground` fan-out does not iterate the fresh local-mode profile's tenant, or 60s is impractical — that is a **genuine product finding** whose remedy is a governed on-demand capture trigger, which requires a **NEW frozen IPC channel = a separate FG gate** (out of scope here; presented as the operator's decision). Not implemented in this gate.
+
 ## FINAL STATUS
 
-**S80 = PARTIAL — ENGINEERING COMPLETE, MAC VALIDATION PENDING.** Frozen gate applied additively (ONE file, backward-compatible), non-frozen wiring complete, all sandbox-runnable checks green, exactly one authorized frozen surface touched, `baseline.json` untouched, no runtimeCore change needed. Release track PAUSED. STOP after S80-FG — S81 not started.
+**S80 = PARTIAL — NOT GREEN.** Engineering complete (frozen field + non-frozen wiring; typecheck node+web 0, eslint clean, 10/10 core + 14/14 executiveCenter); Mac build ✅, main suite clean of S80 failures (only Gate-27 paused-release), UI 455/455. **The real-Electron journey has NOT passed** — the original harness assumed a non-existent channel (class B); it is now fixed to drive the real background→executive-snapshot path and awaits a Mac **re-run**. If the re-run passes, S80 = GREEN; if it fails on background capture reaching the local-mode tenant, that is a product finding requiring a governed on-demand capture trigger (separate FG). Release track PAUSED. S81 not started.

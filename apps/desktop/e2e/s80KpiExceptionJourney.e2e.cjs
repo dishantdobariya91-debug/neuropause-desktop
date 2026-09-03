@@ -2,16 +2,17 @@
 /**
  * ERP S80 — GOVERNED KPI SNAPSHOT + EXCEPTION INTELLIGENCE, real Electron journey.
  *
- * DESIGN-FORWARD: this harness drives the LIVE path
- *   inventory below safety stock → KPI snapshot → exception → notification → Executive Center
- *   visibility → recovery clears the exception
- * through `window.neuropause.invoke` on the real app.
+ * Drives the REAL live path with NO new channel (per FG-S80):
+ *   product below safety stock (governed create)
+ *   → the governed BACKGROUND capture service ticks per-tenant (kpi-intelligence-capture)
+ *   → KPI snapshot + exception evaluation
+ *   → surfaced on the EXISTING `executiveCenter:snapshot` channel as `kpiIntelligence.activeExceptions`
+ *   → restock (governed update) → next tick clears the exception (RECOVERED).
  *
- * ⚠ PENDING the FG-S80 live-wiring gate (frozen `ExecutiveSnapshot` field + runtimeCore capture
- * service). Until that token is applied the snapshot/exception data is not yet exposed through the
- * `enterprise:executive.snapshot` channel, so this harness is INERT (it will report the wiring gap
- * rather than pass). It is committed now as the acceptance script the FG gate's verification plan runs.
- * Run only AFTER the FG wiring lands and an alternate build exists (out-seam-s80).
+ * S80-MAC FIX (class B): the prior harness invoked a non-existent `enterprise:kpi.capture`
+ * channel — the implementation deliberately provides NO capture channel (capture is the
+ * background service). This harness instead POLLS the executive snapshot across the background
+ * tick. NOTE: capture is background-only (TICK_MS = 60_000), so this journey polls up to ~150s.
  *
  * Build first:  env -u NP_E2E_BUILD npx electron-vite build --outDir "$PWD/out-seam-s80"
  * Run:          NODE_PATH="$(git rev-parse --show-toplevel)/node_modules" node e2e/s80KpiExceptionJourney.e2e.cjs
@@ -28,7 +29,7 @@ function assert(c, m) { if (!c) fail(m); out('PASS', m); }
 async function waitForLog(logs, re, ms) { const end = Date.now() + ms; for (;;) { if (re.test(logs.join(''))) return true; if (Date.now() > end) return false; await sleep(400); } }
 
 async function main() {
-  if (!fs.existsSync(ALT_MAIN)) fail(`alternate build missing: ${ALT_MAIN} (FG-S80 wiring + build required first)`);
+  if (!fs.existsSync(ALT_MAIN)) fail(`alternate build missing: ${ALT_MAIN} (build out-seam-s80 first)`);
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'np-s80-'));
   const logs = [];
   const app = await electron.launch({
@@ -43,31 +44,37 @@ async function main() {
     const userData = await app.evaluate(({ app: a }) => a.getPath('userData'));
     assert(fs.realpathSync(userData) === fs.realpathSync(profile), 'ISOLATED profile is the running userData');
     for (const re of [/Enterprise OS ready/, /Runtime core ready/]) assert(await waitForLog(logs, re, 30_000), `BOOT_LOG ${re}`);
+    assert(await waitForLog(logs, /KPI intelligence capture started/, 30_000), 'BOOT_LOG capture service started');
+
     const bridge = (ch, payload) => win.evaluate(([c, p]) => window.neuropause.invoke(c, p), [ch, payload]);
     const create = (moduleId, fields) => bridge('enterprise:module.create', { moduleId, fields });
     const update = (moduleId, id, fields) => bridge('enterprise:module.update', { moduleId, id, fields });
-    // The FG wiring exposes capture + kpiIntelligence on the executive snapshot; channel names below
-    // are the FG proposal's — the harness asserts the wiring gap explicitly if they are absent.
-    const snapshot = () => bridge('enterprise:executive.snapshot', {});
+    const execSnapshot = () => bridge('executiveCenter:snapshot', {});
+    const KPI = 'inventory.belowSafetyStock';
+    // Poll the executive snapshot until predicate(activeExceptions) holds, across ≥2 background ticks.
+    const pollExc = async (pred, label, budgetMs = 150_000) => {
+      const end = Date.now() + budgetMs;
+      for (;;) {
+        const snap = await execSnapshot().catch(() => null);
+        const exc = (snap && snap.kpiIntelligence && snap.kpiIntelligence.activeExceptions) || [];
+        if (pred(exc)) return exc;
+        if (Date.now() > end) fail(`${label} (background capture did not surface within ${budgetMs}ms — see NOTE on background-only capture)`);
+        await sleep(3000);
+      }
+    };
 
-    // 1. product below its own safety stock (existing master fields)
+    // 1. product below its own safety stock (existing master fields; governed create)
     const p = await create('inventory-products', { sku: 'WIDGET', name: 'Widget', safetyStock: 10, currentStock: 2 });
-    assert(p.ok, 'product created below safety stock');
-    // 2. trigger a governed KPI capture (FG channel) — asserts the wiring gap if the capture channel is absent
-    const cap = await bridge('enterprise:kpi.capture', { periodKey: new Date().toISOString().slice(0, 10) }).catch(() => null);
-    assert(cap && cap.ok, 'FG-S80 capture channel present and captured (else: wiring PENDING)');
-    // 3. exception visible in the Executive Center snapshot
-    const snap1 = await snapshot();
-    const exc = (snap1 && snap1.kpiIntelligence && snap1.kpiIntelligence.activeExceptions) || [];
-    assert(exc.some((e) => e.kpiKey === 'inventory.belowSafetyStock' && e.status === 'EXCEPTION'), 'safety-stock EXCEPTION visible in Executive Center');
-    // 4. recovery — raise stock above safety, re-capture, exception clears
-    await update('inventory-products', p.record.id, { currentStock: 50 });
-    await bridge('enterprise:kpi.capture', { periodKey: new Date(Date.now() + 86400000).toISOString().slice(0, 10) });
-    const snap2 = await snapshot();
-    const exc2 = (snap2 && snap2.kpiIntelligence && snap2.kpiIntelligence.activeExceptions) || [];
-    assert(!exc2.some((e) => e.kpiKey === 'inventory.belowSafetyStock' && e.status === 'EXCEPTION'), 'exception RECOVERED / cleared after restock');
+    assert(p.ok && p.record, 'product created below safety stock');
+    // 2/3/4. background capture → snapshot → EXCEPTION visible on the existing Executive Center channel
+    await pollExc((exc) => exc.some((e) => e.kpiKey === KPI && e.status === 'EXCEPTION'), 'safety-stock EXCEPTION visible in Executive Center');
+    out('PASS', 'safety-stock EXCEPTION surfaced on executiveCenter:snapshot.kpiIntelligence (governed background capture, no new channel)');
+    // 7/8. restock above safety → next tick clears the exception (RECOVERED → no longer active)
+    assert((await update('inventory-products', p.record.id, { currentStock: 50 })).ok, 'restocked above safety stock');
+    await pollExc((exc) => !exc.some((e) => e.kpiKey === KPI && e.status === 'EXCEPTION'), 'exception RECOVERED / cleared after restock');
+    out('PASS', 'exception cleared after restock (recovery)');
 
-    out('RESULT', 'S80 KPI/exception intelligence VERIFIED in the real Electron runtime (safety-stock → snapshot → exception → Executive Center → recovery)');
+    out('RESULT', 'S80 KPI/exception intelligence VERIFIED in the real Electron runtime (safety-stock → background capture → snapshot → Executive Center exception → recovery), no new channel');
   } finally {
     await Promise.race([app.close(), sleep(15_000)]).catch(() => undefined);
     try { app.process().kill('SIGKILL'); } catch { /* already dead */ }
