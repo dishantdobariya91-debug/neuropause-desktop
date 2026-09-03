@@ -17,17 +17,29 @@
 import { app } from 'electron';
 import { join } from 'node:path';
 import type { KpiIntelligenceSnapshot } from '@neuropause/shared';
-import { productFromRecord } from '@neuropause/shared';
+import { goodsReceiptFromRecord, productFromRecord, purchaseOrderFromRecord, supplierFromRecord } from '@neuropause/shared';
 import { createLogger } from '../logger';
 import type { BackgroundService } from '../services/serviceManager';
 import { forEachTenantBackground, activeTenantScope } from '../enterprise/index';
 import { productModule } from '../enterprise/modules/inventory/productModuleInstance';
+// S82 — procurement KPI sources, read exactly the way productModule is read (tenant-scoped stores).
+import {
+  goodsReceiptModule,
+  purchaseOrderModule,
+  supplierModule,
+} from '../enterprise/modules/procurement/procurementInstances';
 import { DurableJsonStore } from '../platform/persistence/durableJsonStore';
 import {
   KpiSnapshotStore, KpiExceptionStore, captureAndEvaluate, type KpiNotificationIntent,
 } from './kpiSnapshotStore';
 import type { KpiSnapshot, KpiExceptionState } from './kpiSnapshotModel';
 import { belowSafetyStockObservation, safetyStockCondition, type ProductStockLike } from './inventorySafetyStockSeam';
+import {
+  highRiskSuppliersCondition,
+  highRiskSuppliersObservation,
+  openPoExposureCondition,
+  openPoExposureObservation,
+} from './procurementIntelligenceSeam';
 
 const log = createLogger('kpi-intelligence');
 const TICK_MS = 60_000; // matches the other background cadences
@@ -52,11 +64,23 @@ async function captureForScope(scope: { tenantId: string | null; workspaceId: st
       const p = productFromRecord(r);
       return { sku: p.sku, currentStock: Number(p.currentStock ?? 0), safetyStock: Number(p.safetyStock ?? 0) };
     });
+  // S82 — procurement observations from the SAME tenant-scoped stores, existing formulas only.
+  const purchaseOrders = purchaseOrderModule.store.list().map(purchaseOrderFromRecord);
+  const suppliers = supplierModule.store.list().map(supplierFromRecord);
+  const goodsReceipts = goodsReceiptModule.store.list().map(goodsReceiptFromRecord);
   const result = await captureAndEvaluate({
     scope, now: () => new Date().toISOString(), periodKey: periodKeyFor(Date.now()),
     snapshots, exceptions,
-    observations: [belowSafetyStockObservation(products)],
-    conditions: [safetyStockCondition(0)], // "any product below its own safety stock" — no invented threshold
+    observations: [
+      belowSafetyStockObservation(products),
+      openPoExposureObservation(purchaseOrders),
+      highRiskSuppliersObservation(suppliers, goodsReceipts),
+    ],
+    conditions: [
+      safetyStockCondition(0), // "any product below its own safety stock" — no invented threshold
+      highRiskSuppliersCondition(0), // "any supplier at the existing >=60 cutoff" — no invented threshold
+      openPoExposureCondition(null), // no repo-defined exposure limit — UNCONFIGURED, fail-closed
+    ],
   });
   if ('refused' in result) return; // NO_TENANT — deny-by-default, nothing produced
   for (const n of result.notifications) deliverIntent(n);
