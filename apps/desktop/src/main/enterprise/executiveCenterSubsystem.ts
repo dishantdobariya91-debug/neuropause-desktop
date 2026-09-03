@@ -8,6 +8,7 @@
 import { EmptyRequest, IpcChannel, type ExecutiveCenterSnapshot } from '@neuropause/shared';
 import { createLogger } from '../logger';
 import type { SecureHandlerDef } from '../ipc/secureBridge';
+import { declareChannelResource } from '../ipc/channelResource';
 import { buildFounderProactiveItems } from '../ai/founderProactive';
 import { buildOrgIntelligenceItems, collectOrgHealthInputs } from './orgIntelligence';
 import { composeExecutiveSnapshot, type TimelineEntryLite } from './executiveCenter';
@@ -152,6 +153,22 @@ import { getProcessAssessment } from './processMiningProvider';
 import { computeOrgHealth, type MonthlyTrend } from '@neuropause/shared';
 
 const log = createLogger('executive-center');
+
+// FG-S80b — what the governed on-demand KPI capture ACTUALLY reaches (verified from code): it READS the
+// active tenant's inventory-products (via productModule.store) to compute the safety-stock observation, and
+// WRITES the tenant-scoped kpi-snapshots + kpi-exceptions stores. Declared `mutate` — its dominant effect —
+// with both written stores named in the reason. Tenant is resolved in main (activeTenantScope), never from
+// the renderer. (The sibling ExecutiveCenterSnapshot is a read and remains undeclared, consistent with the
+// registry's current coverage.)
+declareChannelResource({
+  channel: IpcChannel.KpiCapture,
+  store: 'kpi-snapshots',
+  effect: 'mutate',
+  reason:
+    "Reads the active tenant's inventory-products to compute the safety-stock KPI, then writes the " +
+    'tenant-scoped kpi-snapshots and kpi-exceptions stores (idempotent, immutable per period). Tenant is ' +
+    'resolved server-side via activeTenantScope(); the renderer supplies no id. Deny-by-default on no tenant.',
+});
 
 export interface ExecutiveCenterSubsystem {
   handlers: SecureHandlerDef[];

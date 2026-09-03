@@ -47,13 +47,13 @@ const MAIN = join(fileURLToPath(new URL('.', import.meta.url)), '..');
  * only alongside declarations; a bare increase means a sensitive channel was
  * added and nobody said what it reaches.
  */
-const SENSITIVE_BASELINE = 196; // +1 FG-1 (Wave-2 Slice 10): capability:m365.propose gated (connectors:manage). Gated-but-UNDECLARED by design: an unhandled channel reaches no store, so a declaration would be fiction — declareChannelResource + DECLARED_BASELINE 3→4 land in Slice 11 with the handler.
+const SENSITIVE_BASELINE = 197; // +1 FG-S80b: kpi:capture gated (intelligence:read, mirrors ExecutiveCenterSnapshot). DECLARED with the channel this time — it reaches real stores (see DECLARED_BASELINE). // +1 FG-1 (Wave-2 Slice 10): capability:m365.propose gated (connectors:manage). Gated-but-UNDECLARED by design: an unhandled channel reaches no store, so a declaration would be fiction — declareChannelResource + DECLARED_BASELINE 3→4 land in Slice 11 with the handler.
 
 /**
  * THE NUMERATOR. 2 as of P13C final certification — `ai:preference.get` and
  * `ai:preference.set`, added by D-5. This number may only go UP.
  */
-const DECLARED_BASELINE = 4; // +1 FG-2 (Wave-2 Slice 11): capability:m365.propose declares its connector-accounts read (handler landed)
+const DECLARED_BASELINE = 5; // +1 FG-S80b: kpi:capture declares its mutate of kpi-snapshots/kpi-exceptions (a governed write channel — coverage improves, not just the surface). // +1 FG-2 (Wave-2 Slice 11): capability:m365.propose declares its connector-accounts read (handler landed)
 
 function sourceFiles(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
