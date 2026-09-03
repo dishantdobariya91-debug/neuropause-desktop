@@ -81,8 +81,15 @@ async function main() {
 
     out('RESULT', 'Maintenance whole-user journey VERIFIED in the real Electron runtime (fault→WO→assign→start→complete→verify→history→spare-part issue); maintenance-cost→GL = POLICY-BLOCKED, not driven');
   } finally {
-    await app.close().catch(() => undefined);
+    // HARNESS FIX (S76): app.close() can hang after a fully successful journey,
+    // leaving node alive forever. Bound the graceful close, hard-kill as fallback,
+    // and exit explicitly once cleanup is done. No assertion behavior changed.
+    await Promise.race([app.close(), sleep(15_000)]).catch(() => undefined);
+    try { app.process().kill('SIGKILL'); } catch { /* already dead */ }
     fs.rmSync(profile, { recursive: true, force: true });
   }
 }
-main().catch((e) => { console.error(e); process.exitCode = 1; });
+main().then(
+  () => process.exit(process.exitCode ?? 0),
+  (e) => { console.error(e); process.exit(1); },
+);
