@@ -107,4 +107,21 @@ The full main suite after the fix surfaced 4 failures. Classified honestly:
 
 ## FINAL STATUS
 
-**S80 = PARTIAL — NOT GREEN.** Engineering complete (frozen field + non-frozen wiring; typecheck node+web 0, eslint clean, 10/10 core + 14/14 executiveCenter); Mac build ✅, main suite clean of S80 failures (only Gate-27 paused-release), UI 455/455. **The real-Electron journey has NOT passed** — the original harness assumed a non-existent channel (class B); it is now fixed to drive the real background→executive-snapshot path and awaits a Mac **re-run**. If the re-run passes, S80 = GREEN; if it fails on background capture reaching the local-mode tenant, that is a product finding requiring a governed on-demand capture trigger (separate FG). Release track PAUSED. S81 not started.
+**S80 = GREEN — VERIFIED END-TO-END IN THE REAL ELECTRON RUNTIME (operator Mac, 2026-09-03, HEAD de7d475).**
+
+The real-Electron `s80KpiExceptionJourney` passed on the operator's Mac — all 10 assertions + RESULT, exit 0, on the alternate release build (`out-seam-s80`), fresh isolated `--user-data-dir` profile, boot logs observed on the app's own stdout, every step through `window.neuropause.invoke` (the same preload bridge the UI uses):
+
+1. ISOLATED profile is the running userData ✓
+2. BOOT_LOG `Enterprise OS ready` ✓ · `Runtime core ready` ✓
+3. product created below its own safety stock (governed create) ✓
+4. **`kpi:capture` governed + captured (tenant resolved in main)** ✓ — the F-P45 fix proven live
+5. **safety-stock EXCEPTION visible in Executive Center** (the `executiveCenter:snapshot` read, same-tenant) ✓
+6. **repeated capture creates no duplicate historical snapshot (idempotent per period)** ✓
+7. restock above safety stock (governed update) ✓ → `kpi:capture` after restock ✓
+8. **exception RECOVERED / cleared after restock** ✓
+
+RESULT: *"S80 KPI/exception intelligence VERIFIED in the real Electron runtime (below-safety → kpi:capture → Executive Center exception → idempotent recapture → restock → recover), governed on-demand, tenant from main."*
+
+**Full validation on the operator Mac at HEAD de7d475:** build ✅ · main suite **10198 passed / 7 skipped, 0 failures** (excluding the two Gate-27 paused-release guards — class D, the standing S76 state, NOT S80) · UI suite **455/455** · real-Electron journey **10/10 + RESULT, exit 0**.
+
+**Frozen footprint across the whole FG-S80b arc:** exactly ONE file, `packages/shared/src/ipc/channels.ts` (the 2 additive lines authorized by the FG-S80b token). Everything else non-frozen. `certification/baseline.json` never touched. The F-P45 writer/reader-key finding is CLOSED: capture and read both resolve tenant via `activeTenantScope()` (writer key = reader key by construction), the channel is authz-classified (`intelligence:read`, mirroring `ExecutiveCenterSnapshot`) and channel-resource-declared (governed write of kpi-snapshots/kpi-exceptions). **Release track PAUSED. S81 NOT started.**
