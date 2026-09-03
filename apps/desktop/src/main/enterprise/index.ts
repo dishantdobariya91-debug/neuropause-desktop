@@ -217,6 +217,8 @@ import {
 import { reservationModule } from './modules/inventory/reservationModuleInstance';
 import { inventoryValuationModule } from './modules/inventory/inventoryValuationModuleInstance';
 import { serialModule } from './modules/inventory/serialModuleInstance';
+import { inventoryAgingModule } from './modules/inventory/inventoryAgingModuleInstance';
+import { atpModule } from './modules/inventory/atpModuleInstance';
 import {
   supplierModule,
   vendorContractModule,
@@ -1293,6 +1295,8 @@ export async function initEnterprise(deps: EnterpriseDeps): Promise<EnterpriseSu
   registerModule(reservationModule); // Inventory → Reservations (holds posting ledger movements)
   registerModule(inventoryValuationModule); // Inventory → Valuation (standard-cost registers)
   registerModule(serialModule); // Inventory → Serial Units (per-unit serialized tracking)
+  registerModule(inventoryAgingModule); // Inventory → Aging (immutable point-in-time on-hand-by-age snapshots; reads the ledger, mutates nothing)
+  registerModule(atpModule); // Inventory → ATP (on-hand/reserved/available/incoming/ATP per SKU+warehouse; reads ledger + open POs, mutates nothing)
   registerModule(supplierModule); // Procurement → Suppliers
   registerModule(vendorContractModule); // Procurement → Vendor Contracts (FW-7: dated agreements gate PO approval — 101st registered module)
   registerModule(purchaseRequestModule); // Procurement → Purchase Requests
