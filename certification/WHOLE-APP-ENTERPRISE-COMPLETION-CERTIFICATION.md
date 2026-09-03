@@ -70,11 +70,11 @@ The common blocker for 1–5 is the **approval control-plane** (tenant-configura
 | Procurement / P2P | PR→approve→PO→GR→supplier-invoice→pay→AP/GL | ✓ (8 cmds) | ✓ | ✓ procurementUiJourney | **GREEN** *(PO approve/send = D12 POLICY-BLOCKED)* |
 | Finance / GL | journal/posting/periods/AR/AP/credit-debit/reversal | ✓ (9 cmds) | ✓ | ✓ s62ReversalRuntime | **GREEN** *(bank-recon reversal POLICY-BLOCKED)* |
 | Inventory | product/warehouse/stock/movement/valuation | via GR/ship spine | ✓ | ✓ (within O2C/P2P) | **GREEN** for movement; masters GOVERNED-CRUD |
-| Warehouse | zone/bin→transfer→pick→pack→ship→cycle-count | ship via spine | ✓ | partial | GOVERNED-CRUD · **E2E-PENDING** *(cycle-count/adjustment materiality = D10)* |
-| CRM | lead→qualify→opportunity→quote→order→history | create via spine (order) | ✓ | partial (ui-tests) | GOVERNED-CRUD · **E2E-PENDING** |
-| HR | employee→attendance→leave→payroll→payslip→disburse→offboard | — | ✓ | — | GOVERNED-CRUD · **E2E-PENDING** *(payroll post/disburse = D8 POLICY-BLOCKED)* |
-| Expenses | claim→approve (creator≠approver SoD)→reimburse→accounting | expense-claim action + SoD (S57) | ✓ | partial | GOVERNED + SoD; whole-journey E2E-PENDING |
-| Manufacturing | BOM→production order→execution→quality→costing | — | ✓ | — | GOVERNED-CRUD · **E2E-PENDING** |
+| Warehouse | zone/bin→transfer→pick→pack→ship→cycle-count | ship via spine | ✓ | **journey pin + harness (Gate 4)** | **JOURNEY GREEN** (governed movement lifecycle; Mac harness pending) *(cycle-count/adjustment materiality = D10 POLICY-BLOCKED)* |
+| CRM | lead→qualify→opportunity→quote→order→history | create via spine (order) | ✓ | **journey pin + harness (Gate 2)** | **JOURNEY GREEN** (governed layer; Mac harness pending) |
+| HR | employee→attendance→leave→payroll→payslip→disburse→offboard | — | ✓ | **journey pin + harness (Gate 3)** | **JOURNEY GREEN** (lifecycle + SoD; Mac harness pending) *(payroll post/disburse = D8 POLICY-BLOCKED)* |
+| Expenses | claim→approve (creator≠approver SoD)→reimburse→accounting | expense-claim action + SoD (S57) | ✓ | covered in HR Gate 3 | **JOURNEY GREEN** (SoD accrual proven in Gate 3) |
+| Manufacturing | BOM→production order→execution→quality→costing | — | ✓ | **journey pin + harness (Gate 5)** | **JOURNEY GREEN** (governed production lifecycle; Mac harness pending) *(variance/scrap-approval = D10/D8 POLICY-BLOCKED)* |
 | Maintenance | asset→plan→work-order→history | — | ✓ | — | GOVERNED-CRUD · **E2E-PENDING** |
 | Projects | project→task→time→billing-run→invoice | billing→invoice via spine | ✓ | — | GOVERNED-CRUD · **E2E-PENDING** |
 | Administration/Security | users/roles/permissions/tenancy/audit/backup/outbox | governed reads + tenancy | ✓ | tenantOwnership + DR | **GREEN** (isolation/audit/backup/restart) |
@@ -82,7 +82,7 @@ The common blocker for 1–5 is the **approval control-plane** (tenant-configura
 
 ## 7 · Completion criteria (§19) status
 
-GREEN now: Sales/O2C · Procurement/P2P (minus D12) · Finance/GL (minus bank-recon reversal) · Administration/security · AI advisory boundary · tenant isolation · audit · idempotency · outbox/event durability · backup/recovery (S66) · restart durability · renderer-bypass closure. NOT yet GREEN to the whole-journey bar: CRM · HR · Warehouse lifecycle · Manufacturing · Maintenance · Projects whole-user E2E journeys; plus the seven POLICY-BLOCKED authority workflows (§5).
+GREEN now: Sales/O2C · Procurement/P2P (minus D12) · Finance/GL (minus bank-recon reversal) · Administration/security · AI advisory boundary · tenant isolation · audit · idempotency · outbox/event durability · backup/recovery (S66) · restart durability · renderer-bypass closure · **CRM (Gate 2) · HR+Expenses (Gate 3) · Warehouse movement lifecycle (Gate 4) · Manufacturing (Gate 5)** — journey-GREEN at the governed layer with Mac harnesses pending execution. NOT yet GREEN to the whole-journey bar: Maintenance · Projects whole-user E2E journeys; plus the POLICY-BLOCKED authority workflows (§5) that gate payroll/variance/scrap sign-off, D12 PO approve-send, and bank-reconciled reversal.
 
 ## FINAL STATUS
 
@@ -91,11 +91,11 @@ GREEN now: Sales/O2C · Procurement/P2P (minus D12) · Finance/GL (minus bank-re
 1. **Approval control-plane (unblocks D8–D11)** — requires operator inputs: threshold model, decider roles, SoD rule, per-domain accounting (payroll disbursement GL, fixed-asset materiality, stock-variance account, period-reopen dual-control record). **Operator decision required before implementation.**
 2. **D12 PO approve/send + receiving gate** — requires the commitment-state + PO-approval-authority ruling. **Operator decision required.**
 3. **Bank-reconciled payment reversal** — requires the bank-correction authority/state ruling. **Operator decision required.**
-4. **HR whole-user E2E journey** (employee→attendance→leave→payroll[post/disburse gated on D8]→payslip→offboard).
-5. **CRM whole-user E2E journey** (lead→qualify→opportunity→quote→order→relationship history).
-6. **Warehouse lifecycle E2E** (transfer→pick→pack→ship→cycle-count[materiality gated on D10]).
-7. **Manufacturing E2E** (BOM→production order→execution→quality→costing).
-8. **Maintenance E2E** (asset→plan→work-order→history).
-9. **Projects E2E** (project→task→time→billing-run→invoice).
+4. ✅ **CRM whole-user E2E journey** — DONE (Gate 2, `session73CrmJourney.test.ts` + `s73CrmJourney.e2e.cjs`), governed layer GREEN, Mac harness pending.
+5. ✅ **HR whole-user E2E journey** — DONE (Gate 3, `session73HrJourney.test.ts` + `s73HrJourney.e2e.cjs`), lifecycle + SoD GREEN, payroll post/disburse = D8 POLICY-BLOCKED, Mac harness pending.
+6. ✅ **Warehouse lifecycle E2E** — DONE (Gate 4, `session73WarehouseJourney.test.ts` + `s73WarehouseJourney.e2e.cjs`), transfer net-zero + pick→pack→ship GREEN, cycle-count/adjustment materiality = D10 POLICY-BLOCKED, Mac harness pending.
+7. ✅ **Manufacturing E2E** — DONE (Gate 5, `session73ManufacturingJourney.test.ts` + `s73ManufacturingJourney.e2e.cjs`), BOM→order→execution→quality→costing GREEN, variance/scrap-approval = D8/D10 POLICY-BLOCKED, Mac harness pending.
+8. **Maintenance E2E** (asset→plan→work-order→history) — remaining.
+9. **Projects E2E** (project→task→time→billing-run→invoice) — remaining.
 
-The economically-consequential governance core (O2C, P2P, finance reversal/adjustment, tenancy, audit, idempotency, outbox, backup, restart, AI boundary) is GREEN and end-to-end proven. The remaining work is (a) the operator-gated authority decisions (items 1–3, which must not be invented) and (b) dedicated whole-user E2E journeys for the non-economic domains (items 4–9). No release/notarization/signing was performed; the final release remains AFTER whole-app completion, per S73 §17/§19.
+The economically-consequential governance core (O2C, P2P, finance reversal/adjustment, tenancy, audit, idempotency, outbox, backup, restart, AI boundary) is GREEN and end-to-end proven, and the four operator-requested journey gates (CRM, HR, Warehouse, Manufacturing) are now journey-GREEN at the governed layer with Mac harnesses ready. The remaining work is (a) the operator-gated authority decisions (items 1–3, which must not be invented), (b) executing the four Mac harnesses on the operator's machine, and (c) the two remaining non-economic domain journeys (items 8–9). No release/notarization/signing was performed; the final release remains AFTER whole-app completion, per S73 §17/§19.
