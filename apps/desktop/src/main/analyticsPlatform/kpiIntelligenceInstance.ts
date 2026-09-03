@@ -20,8 +20,7 @@ import type { KpiIntelligenceSnapshot } from '@neuropause/shared';
 import { productFromRecord } from '@neuropause/shared';
 import { createLogger } from '../logger';
 import type { BackgroundService } from '../services/serviceManager';
-import { forEachTenantBackground } from '../enterprise/index';
-import { currentPrincipal } from '../tenancy/backgroundPrincipal';
+import { forEachTenantBackground, activeTenantScope } from '../enterprise/index';
 import { productModule } from '../enterprise/modules/inventory/productModuleInstance';
 import { DurableJsonStore } from '../platform/persistence/durableJsonStore';
 import {
@@ -72,18 +71,35 @@ function deliverIntent(n: KpiNotificationIntent): void {
 }
 
 /**
- * FG-S80b — governed ON-DEMAND capture for the CURRENT principal. This is the identity fix for
- * the F-P45 finding: it captures under `currentPrincipal()` — the SAME tenant key the executive
- * snapshot read (`readKpiIntelligence(currentPrincipal().tenantId)`) filters by — so what is written
- * is what is read. Tenant is resolved in main; a renderer-supplied id is never consulted.
- * Deny-by-default: no resolvable principal ⇒ refused, nothing captured. Idempotent + immutable
+ * FG-S80b — governed ON-DEMAND capture for the ACTIVE tenant. This is the identity fix for the
+ * F-P45 finding.
+ *
+ * WHY `activeTenantScope()` AND NOT `currentPrincipal()`: `currentPrincipal()` is the BACKGROUND
+ * principal (AsyncLocalStorage), which is set only inside a `forEachTenantBackground` fan-out and is
+ * NULL on the interactive IPC path — so an on-demand capture keyed on it refused every time (the
+ * SEAM-B/S80-MAC observation). `activeTenantScope()` is the ONE resolver the enterprise:module.*
+ * handlers already use: it PREFERS a background principal when one is in scope and falls back to the
+ * session's active workspace otherwise, so it is correct on BOTH paths. It is resolved in main; a
+ * renderer-supplied id is never consulted. The executive snapshot read below resolves the SAME way,
+ * so what is written is what is read — writer key = reader key by construction.
+ *
+ * Deny-by-default: no resolvable tenant ⇒ refused, nothing captured. Idempotent + immutable
  * (reuses `captureForScope` → `captureAndEvaluate`; deterministic per-period snapshot id).
  */
-export async function captureForCurrentPrincipal(): Promise<{ ok: boolean; captured: boolean }> {
-  const p = currentPrincipal();
-  if (!p || !p.tenantId) return { ok: false, captured: false };
-  await captureForScope({ tenantId: p.tenantId, workspaceId: p.workspaceId ?? null });
+export async function captureForActiveTenant(): Promise<{ ok: boolean; captured: boolean }> {
+  const scope = activeTenantScope();
+  if (!scope || !scope.tenantId) return { ok: false, captured: false };
+  await captureForScope({ tenantId: scope.tenantId, workspaceId: scope.workspaceId ?? null });
   return { ok: true, captured: true };
+}
+
+/**
+ * Read-model for the Executive Center, resolved for the ACTIVE tenant the SAME way the on-demand
+ * capture writes (`activeTenantScope()`), so the read can never key on a different tenant than the
+ * write. Null when no tenant resolves (never a fabricated 0).
+ */
+export function readKpiIntelligenceForActiveTenant(): KpiIntelligenceSnapshot | null {
+  return readKpiIntelligence(activeTenantScope()?.tenantId ?? null);
 }
 
 /** Sync read-model for the Executive Center — latest snapshots + active exceptions for one tenant. */

@@ -11,8 +11,7 @@ import type { SecureHandlerDef } from '../ipc/secureBridge';
 import { buildFounderProactiveItems } from '../ai/founderProactive';
 import { buildOrgIntelligenceItems, collectOrgHealthInputs } from './orgIntelligence';
 import { composeExecutiveSnapshot, type TimelineEntryLite } from './executiveCenter';
-import { currentPrincipal } from '../tenancy/backgroundPrincipal';
-import { readKpiIntelligence, captureForCurrentPrincipal } from '../analyticsPlatform/kpiIntelligenceInstance';
+import { readKpiIntelligenceForActiveTenant, captureForActiveTenant } from '../analyticsPlatform/kpiIntelligenceInstance';
 import { getEnterpriseTimeline } from '../timeline';
 import { healthHistoryStore } from './healthHistoryInstance';
 import { decisionStore } from './decisionInstance';
@@ -541,8 +540,9 @@ export function initExecutiveCenter(): ExecutiveCenterSubsystem {
       .record(snap.orgHealth.overall, snap.orgHealth.engineering, nowMs)
       .catch((err) => log.warn('health-history record failed', { err: String(err) }));
     // S80 — surface the governed KPI intelligence (persisted snapshots + active exceptions) for the
-    // active tenant only. Read-only; tenant resolved in main (never renderer-supplied); null when unresolved.
-    snap.kpiIntelligence = readKpiIntelligence(currentPrincipal()?.tenantId ?? null);
+    // active tenant only. Read-only; tenant resolved in main via `activeTenantScope()` — the SAME
+    // resolver the on-demand capture writes under (writer key = reader key); null when unresolved.
+    snap.kpiIntelligence = readKpiIntelligenceForActiveTenant();
     return snap;
   };
 
@@ -553,13 +553,14 @@ export function initExecutiveCenter(): ExecutiveCenterSubsystem {
       handler: () => snapshot(),
     },
     {
-      // FG-S80b — governed on-demand KPI capture for the CURRENT principal (renderer sends
-      // nothing; tenant resolved in main). Fixes the F-P45 writer/reader-key finding: capture
-      // now writes under the same principal this subsystem's snapshot read filters by.
+      // FG-S80b — governed on-demand KPI capture for the ACTIVE tenant (renderer sends nothing;
+      // tenant resolved in main via activeTenantScope()). Fixes the F-P45 writer/reader-key finding:
+      // capture now writes under the SAME resolver this subsystem's snapshot read filters by.
+      // requireAuth + intelligence:read are stamped by the runtimeCore global authz pass from
+      // RUNTIME_CHANNEL_PERMISSIONS (mirrors the ExecutiveCenterSnapshot sibling) — not restated here.
       channel: IpcChannel.KpiCapture,
       schema: EmptyRequest,
-      requireAuth: true,
-      handler: () => captureForCurrentPrincipal(),
+      handler: () => captureForActiveTenant(),
     },
   ];
 

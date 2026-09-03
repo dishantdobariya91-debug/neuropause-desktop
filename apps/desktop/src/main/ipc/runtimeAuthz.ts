@@ -804,6 +804,10 @@ export const RUNTIME_CHANNEL_PERMISSIONS: Partial<Record<IpcChannelName, Enterpr
 
   // Executive Center snapshot (rolls every layer into one live view).
   [IpcChannel.ExecutiveCenterSnapshot]: 'intelligence:read',
+  // FG-S80b — governed on-demand KPI capture. The refresh half of the SAME executive KPI-intelligence
+  // surface as ExecutiveCenterSnapshot (tenant-scoped; persists only system-derived analytics, exactly
+  // as the snapshot read above already records a health datapoint), so it carries the sibling's scope.
+  [IpcChannel.KpiCapture]: 'intelligence:read',
 
   // Governance / context / relationship trace reads (decision provenance +
   // entity relationship intelligence).
