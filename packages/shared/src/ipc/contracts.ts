@@ -537,6 +537,20 @@ export type CapabilityProposeM365ActionResponse =
         expectedEffect: string;
         verificationPlan: string;
         expiry: string;
+        /**
+         * FG-S119-BRAINREVIEW-METADATA (S120) — ADDITIVE OPTIONAL, strictly ADVISORY display metadata from the
+         * S117/S118 pre-execution layer (`buildProposalMetadata`). DISPLAY-ONLY: an estimate + argument-validity
+         * flag the confirm panel renders read-only. It carries NO authority/allow/permission/grant field, NO
+         * tenant/principal, NO recipient/body, NO credential; it NEVER influences authorization/approval/policy/
+         * execution. Absent ⇒ the panel behaves exactly as today. The renderer never recalculates it.
+         */
+        metadata?: {
+          estimatedTokens: number;
+          estimatedCostUsd: number;
+          pricingKnown: boolean;
+          estimateOnly: true;
+          argsValid: boolean;
+        };
       };
     }
   | {
