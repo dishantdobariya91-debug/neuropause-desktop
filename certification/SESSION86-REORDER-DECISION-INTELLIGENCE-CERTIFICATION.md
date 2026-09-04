@@ -48,9 +48,11 @@ Pure: valued order + manager approval, threshold-crossing pulls finance/executiv
 
 gate-detector new files PROCEED · typecheck node+web **0** · eslint clean · S86 **16/16** · inventory+procurement+demand-trend **223/223**.
 
-## 13. Real-Electron result
+## 13. Real-Electron result — GREEN (operator Mac, 2026-09-04)
 
-`e2e/s86ReorderDecisionReadinessJourney.e2e.cjs` written + syntax-checked. **PENDING Mac**: product (purchaseCost 4) → receive → ship (demand) → reorder decision (READY_FOR_OPERATOR_REVIEW, estimatedOrderValue 1720 = 430 × 4, requiredApprovalSteps [Manager approval], executionReadiness BLOCKED_UNDEFINED_POLICY) → deterministic regeneration → governed read → **and the critical negatives: no PR, no PO, no inventory mutation, no GL posted, execution blocked on every row.**
+FG-S86 registration applied (isolated frozen commit `f3ac826`; `enterprise/index.ts` the only frozen file). Then:
+- Real-Electron `e2e/s86ReorderDecisionReadinessJourney.e2e.cjs`: **passed** (all 22 assertions + RESULT, exit 0) on the alternate build (`out-seam-s86`), fresh isolated profile, governed bridge only — product (purchaseCost 4) → receive → ship (demand) → reorder decision (READY_FOR_OPERATOR_REVIEW, estimatedOrderValue 1720 = 430 × 4 from the canonical qty × canonical cost, requiredApprovalSteps [Manager approval] from the existing spend policy, executionReadiness BLOCKED_UNDEFINED_POLICY) → deterministic byte-identical regeneration → governed read (both reports) → **and every critical negative: NO purchase request drafted, NO PO created, products byte-identical (no inventory mutation), shipping byte-identical (read-only), journal count unchanged (no GL posted), execution BLOCKED on every generated row.**
+- Full main suite: **985 files / 10307 passed / 7 skipped** — clean of S86 failures. Full UI suite green.
 
 ## 14. Tenant/RBAC/security evidence
 
@@ -72,6 +74,6 @@ Unit + journey pinned: generating a decision report drafts NO purchase request, 
 
 Supplier selection master field + product→supplier link; tenant-configurable spend policy wiring; the governed reorder EXECUTION gate (decision → PR draft authority, operator-gated); demand→reorder-point adjustment; optional KPI/Executive-Center reorder-decision surfacing.
 
-## 19. Status — awaiting FG-S86 token
+## 19. Final S86 status — GREEN
 
-Non-frozen decision-readiness core COMPLETE and GREEN in the Linux sandbox (16/16 focused + 223/223 sweep + typecheck + lint clean). FG-S86 gate doc presented; the 2-line `enterprise/index.ts` registration is STOPPED pending the literal token. Real-Electron journey PENDING the operator's Mac. `certification/baseline.json` untouched. Execution stays an operator-gated future gate (memo §C.3). Release track PAUSED.
+**GREEN — Governed Reorder DECISION-READINESS Intelligence VERIFIED end-to-end in the real Electron runtime, decision-intelligence-only and non-executing.** Non-frozen decision-readiness core (commit `c189cad`) + FG-S86 registration (2 additive lines, one frozen file, commit `f3ac826`, token quoted in the gate doc) + real-Electron journey (22 assertions, exit 0) + full main **985/10307/7** and full UI all proven. Reuses the canonical reorder engine (S85 → `assessReorder`/`openSupplyForProduct`) + the existing spend policy (`applicableSteps`/`DEFAULT_SPEND_POLICY`) + canonical `purchaseCost`; zero policy invented (missing supplier/cost/demand surfaced as blockers); the execution seam (`runReorderCheck`) is NOT wired; proven no PR/PO/inventory/GL from generation and execution blocked on every row. `certification/baseline.json` untouched. Automatic execution stays an operator-gated future gate (memo §C.3). Release track PAUSED. S87 not started.
