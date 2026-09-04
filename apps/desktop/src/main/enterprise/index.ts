@@ -229,6 +229,7 @@ import {
   supplierPerformanceModule,
   multiLineReceiptModule,
 } from './modules/procurement/procurementInstances';
+import { spendAnalyticsModule, supplierRiskModule } from './modules/procurement/procurementIntelligenceInstances';
 import {
   zoneModule,
   binModule,
@@ -1306,6 +1307,8 @@ export async function initEnterprise(deps: EnterpriseDeps): Promise<EnterpriseSu
   registerModule(multiLineDispatchModule); // Sales → Multi-Line Dispatches (Session 7-Fix)
   registerModule(rfqModule); // Procurement → RFQs (quotation cycle → PO award)
   registerModule(supplierPerformanceModule); // Procurement → Supplier Performance (scorecard registers)
+  registerModule(spendAnalyticsModule); // Procurement → Spend Analytics (immutable per-supplier spend registers; reads POs + receipts + bills + payments, mutates nothing)
+  registerModule(supplierRiskModule); // Procurement → Supplier Risk (existing calculateVendorRisk over real delivery evidence, >=60 cutoff; reads sources, mutates nothing)
   registerModule(zoneModule); // Warehouse → Zones
   registerModule(binModule); // Warehouse → Bins
   registerModule(transferOrderModule); // Warehouse → Transfer Orders
