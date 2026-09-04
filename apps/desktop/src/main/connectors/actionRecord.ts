@@ -155,6 +155,17 @@ export interface ActionRecord {
    * one from the request or the clock.
    */
   readonly eventTime?: string | null;
+  /**
+   * NP-FG-001 (M6) — the confirmation instant: captured at the human's qualifying "Confirm send"
+   * gesture in the renderer and carried VERBATIM through the execute request to this row.
+   * EVIDENCE ONLY — authorizes nothing, never substitutes for `verdict`/`executed`, and is none
+   * of the times above (not `at`, not `requestTime`, not `eventTime`). OPTIONAL-ABSENT exactly
+   * like `correlationId`: the key is genuinely absent when no qualifying instant reached this
+   * row (pre-M6 record, caller carried none, or the contract soft-failed a malformed value to
+   * absence). Never `""`, never back-filled from another time, never a clock read here — a
+   * missing instant is a recorded gap, not "now".
+   */
+  readonly confirmedAt?: string;
   /** The governed actor VERBATIM (D-12 namespace, e.g. `local:<id>`), never stripped. */
   readonly actor: string;
   readonly tenantId: string;
@@ -192,6 +203,12 @@ interface ExecuteRequestLike {
    * it travels request -> evidence and never enters governance, `idem`, or `requestId`.
    */
   correlationId?: string;
+  /**
+   * NP-FG-001 (M6) — the confirmation instant, read from the same execute request. EVIDENCE
+   * ONLY: it travels request -> evidence exactly like `correlationId` and never enters
+   * governance, `idem`, or `requestId`.
+   */
+  confirmedAt?: string;
 }
 
 interface ObserveContext {
@@ -415,6 +432,11 @@ class ActionRecordStore {
         requestTime: requestTimeFrom(requestId),
         // NP-015 §14: only a caller that OBSERVED an event supplies one.
         eventTime: ctx.eventTime ?? null,
+        // NP-FG-001 (M6) — verbatim from the request; no transform, no default, no fallback from
+        // requestTime/eventTime/this clock — a missing or empty value is a recorded gap (key omitted).
+        ...(typeof request.confirmedAt === 'string' && request.confirmedAt.length > 0
+          ? { confirmedAt: request.confirmedAt }
+          : {}),
         transitionId,
         actor: ctx.actor, // verbatim — never stripped (D-12)
         tenantId: ctx.tenantId,

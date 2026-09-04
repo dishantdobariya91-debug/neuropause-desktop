@@ -97,13 +97,16 @@ export function M365WritePanel({
 
   async function confirmSend(): Promise<void> {
     if (!accountId) return;
+    // NP-FG-001 (M6) — the confirmation instant, captured ONCE at the qualifying "Confirm send"
+    // gesture (the reveal click is not consent). Evidence only — never authorization or consent.
+    const confirmedAt = new Date().toISOString();
     setBusy(true);
     setConfirming(false);
     setStatus(null);
     setOutcome(EXECUTING_VIEW);
     try {
       const recipients = to.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
-      const r = await ipc.connectors.m365Execute(connectorId, accountId, 'mail.send', { to: recipients, subject, body }, true, correlationId);
+      const r = await ipc.connectors.m365Execute(connectorId, accountId, 'mail.send', { to: recipients, subject, body }, true, correlationId, confirmedAt);
       const view = classifyWriteOutcome(r);
       setOutcome(view);
       // Clear the compose fields only on an honest provider acknowledgement — never on UNKNOWN/HELD/DENIED,

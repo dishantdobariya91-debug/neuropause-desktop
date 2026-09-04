@@ -212,3 +212,215 @@ describe('S34a · CLOSING PROOF', () => {
     expect(src).toMatch(/import type \{ GovernedSendResult \} from '\.\.\/cst\/sendTransition'/);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NP-FG-001 · M6 — confirmedAt: the confirmation instant is EVIDENCE ONLY.
+// Captured at the human's qualifying "Confirm send" gesture, carried verbatim
+// request → record → disk; absent means ABSENT (a recorded gap, never "now",
+// never "", never back-filled from any neighbouring time or the clock here).
+// ─────────────────────────────────────────────────────────────────────────────
+describe('NP-FG-001 · M6 — confirmedAt (T1-T10)', () => {
+  /** The panel-shaped execute request with a confirmation instant attached. */
+  const reqWithConfirmedAt = (confirmedAt?: string) => ({
+    ...req(),
+    ...(confirmedAt === undefined ? {} : { confirmedAt }),
+  });
+
+  /** A full, contract-valid execute payload (real ids the schema accepts). */
+  const validPayload = (over: Record<string, unknown> = {}) => ({
+    connectorId: 'microsoft-entra',
+    accountId: 'acct-1',
+    actionId: 'mail.send',
+    params: { to: ['bob@example.com'], subject: 'Q3', body: 'numbers' },
+    confirmed: true,
+    ...over,
+  });
+
+  /** Raw persisted row by transitionId — the disk, not our in-memory object. */
+  const rawRow = (transitionId: string): Record<string, unknown> => {
+    const raw = JSON.parse(readFileSync(join(dir, 'action-records.json'), 'utf8'));
+    return raw.records.find((r: { transitionId: string }) => r.transitionId === transitionId);
+  };
+
+  it('T1 · a valid timestamp is retained exactly — in the query result AND in the raw persisted file', async () => {
+    const stamp = '2026-09-03T21:07:11.000Z';
+    await actionRecord.observe(reqWithConfirmedAt(stamp), gsr({ transitionId: 't-m6-t1' }), ctx());
+    const [rec] = await actionRecord.query({ tenantId: 'tenant-A', transitionId: 't-m6-t1' });
+    // VALUE equality through the real query path…
+    expect(rec.confirmedAt).toBe(stamp);
+    // …and byte-for-byte on disk, read raw rather than trusting memory.
+    expect(rawRow('t-m6-t1').confirmedAt).toBe(stamp);
+  });
+
+  it('T2 · an absent timestamp remains absent — the key is genuinely missing on disk, not "" / null', async () => {
+    await actionRecord.observe(req(), gsr({ transitionId: 't-m6-t2' }), ctx());
+    const [rec] = await actionRecord.query({ tenantId: 'tenant-A', transitionId: 't-m6-t2' });
+    expect(rec.confirmedAt).toBeUndefined();
+    const row = rawRow('t-m6-t2');
+    expect('confirmedAt' in row).toBe(false); // ABSENT, not present-as-empty
+    expect(row.confirmedAt).not.toBe('');
+    expect(row.confirmedAt).not.toBeNull();
+  });
+
+  it('T3 · malformed input becomes absent THROUGH THE REAL CONTRACT PATH (soft-fail, parse still succeeds)', async () => {
+    const { M365ActionExecuteRequest } = await import('@neuropause/shared');
+    // A malformed instant must not reject the whole send — it soft-fails to undefined.
+    const prose = M365ActionExecuteRequest.safeParse(validPayload({ confirmedAt: 'five minutes ago' }));
+    expect(prose.success).toBe(true);
+    if (prose.success) expect(prose.data.confirmedAt).toBeUndefined();
+    const numeric = M365ActionExecuteRequest.safeParse(validPayload({ confirmedAt: 12345 }));
+    expect(numeric.success).toBe(true);
+    if (numeric.success) expect(numeric.data.confirmedAt).toBeUndefined();
+    // And a request arriving WITHOUT the field (what the soft-fail hands onward) stores absence.
+    await actionRecord.observe(req(), gsr({ transitionId: 't-m6-t3' }), ctx());
+    expect('confirmedAt' in rawRow('t-m6-t3')).toBe(false);
+  });
+
+  it('T4 · an empty-string input becomes absent — contract soft-fails "" AND the store drops a direct ""', async () => {
+    const { M365ActionExecuteRequest } = await import('@neuropause/shared');
+    // The contract soft-fails '' to undefined ('' is not a datetime).
+    const r = M365ActionExecuteRequest.safeParse(validPayload({ confirmedAt: '' }));
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.confirmedAt).toBeUndefined();
+    // Defense in depth: a '' supplied DIRECTLY to the store still becomes key-absence.
+    await actionRecord.observe(reqWithConfirmedAt(''), gsr({ transitionId: 't-m6-t4' }), ctx());
+    const [rec] = await actionRecord.query({ tenantId: 'tenant-A', transitionId: 't-m6-t4' });
+    expect(rec.confirmedAt).toBeUndefined();
+    expect('confirmedAt' in rawRow('t-m6-t4')).toBe(false);
+  });
+
+  it('T5 · `confirmed` (the consent boolean) remains independent — a refusal stores honestly with no confirmedAt, and nothing gates on it', async () => {
+    // A DENY row with no confirmation instant is still recorded exactly as a DENY.
+    await actionRecord.observe(
+      req(),
+      gsr({ semanticOutcome: 'DENIED', verdict: 'DENY', executed: false, transitionId: 't-m6-t5' }),
+      ctx(),
+    );
+    const [deny] = await actionRecord.query({ tenantId: 'tenant-A', transitionId: 't-m6-t5' });
+    expect(deny.verdict).toBe('DENY');
+    expect(deny.executed).toBe(false);
+    expect(deny.outcome).toBe('DENIED');
+    expect(deny.confirmedAt).toBeUndefined();
+    // And a confirmedAt PRESENT on a refusal changes nothing about the verdict chain.
+    await actionRecord.observe(
+      reqWithConfirmedAt('2026-09-03T21:00:00Z'),
+      gsr({ semanticOutcome: 'DENIED', verdict: 'DENY', executed: false, transitionId: 't-m6-t5b' }),
+      ctx(),
+    );
+    const [denyStamped] = await actionRecord.query({ tenantId: 'tenant-A', transitionId: 't-m6-t5b' });
+    expect(denyStamped.verdict).toBe('DENY');
+    expect(denyStamped.executed).toBe(false);
+    expect(denyStamped.outcome).toBe('DENIED');
+    // Structural: nothing in the store reads confirmedAt for gating — outside the ActionRecord
+    // construction spread and the interface docs, no decision path mentions it (same source-scan
+    // idiom as the OBSERVER invariant above).
+    const src = readFileSync(join(__dirname, 'actionRecord.ts'), 'utf8');
+    const queryMethod = src.slice(src.indexOf('async query('));
+    expect(queryMethod).not.toContain('confirmedAt');
+    const verification = src.slice(src.indexOf('async recordVerification('), src.indexOf('async query('));
+    expect(verification).not.toContain('confirmedAt');
+  });
+
+  it('T6 · confirmed=true with no timestamp remains valid — parse succeeds, observe succeeds, record has no confirmedAt', async () => {
+    const { M365ActionExecuteRequest } = await import('@neuropause/shared');
+    const parsed = M365ActionExecuteRequest.safeParse(validPayload()); // confirmed: true, no confirmedAt
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.confirmed).toBe(true);
+      expect(parsed.data.confirmedAt).toBeUndefined();
+    }
+    await expect(actionRecord.observe(req(), gsr({ transitionId: 't-m6-t6' }), ctx())).resolves.toBeUndefined();
+    const [rec] = await actionRecord.query({ tenantId: 'tenant-A', transitionId: 't-m6-t6' });
+    expect(rec.executed).toBe(true); // the send is intact…
+    expect(rec.confirmedAt).toBeUndefined(); // …and the missing instant is a recorded gap.
+    expect('confirmedAt' in rawRow('t-m6-t6')).toBe(false);
+  });
+
+  it('T7 · confirmed=true plus timestamp preserves BOTH independently — every pre-existing column is exactly what it was', async () => {
+    const stamp = '2026-09-03T21:30:00Z';
+    const outcome = { requestId: 'req:M6IDEM:1787228221628', verdict: 'ALLOW', executed: true, semanticOutcome: 'ACKNOWLEDGED' };
+    await actionRecord.observe(req(), gsr({ ...outcome, transitionId: 't-m6-t7-base' }), ctx());
+    await actionRecord.observe(reqWithConfirmedAt(stamp), gsr({ ...outcome, transitionId: 't-m6-t7' }), ctx());
+    const [base] = await actionRecord.query({ tenantId: 'tenant-A', transitionId: 't-m6-t7-base' });
+    const [rec] = await actionRecord.query({ tenantId: 'tenant-A', transitionId: 't-m6-t7' });
+    // The instant is carried…
+    expect(rec.confirmedAt).toBe(stamp);
+    // …while the verdict chain is untouched by its presence.
+    expect(rec.verdict).toBe('ALLOW');
+    expect(rec.executed).toBe(true);
+    expect(rec.outcome).toBe('ACKNOWLEDGED');
+    // Column-for-column: the ONLY key the stamped record adds over the identical
+    // unstamped one is confirmedAt (id/at/transitionId/admissionRef necessarily differ per row).
+    const perRow = new Set(['id', 'at', 'transitionId', 'admissionRef', 'confirmedAt']);
+    const added = Object.keys(rec).filter((k) => !(k in base));
+    expect(added).toEqual(['confirmedAt']);
+    for (const k of Object.keys(base).filter((k) => !perRow.has(k))) {
+      expect((rec as unknown as Record<string, unknown>)[k]).toEqual((base as unknown as Record<string, unknown>)[k]);
+    }
+  });
+
+  it('T8 · no synthetic timestamp is EVER generated — structurally and behaviorally', async () => {
+    // Structural pin (this file's own source-scan idiom): the confirmedAt spread in
+    // actionRecord.ts contains no clock read — no Date.now(), no new Date().
+    const src = readFileSync(join(__dirname, 'actionRecord.ts'), 'utf8');
+    const spread = /\.\.\.\(typeof request\.confirmedAt === 'string' && request\.confirmedAt\.length > 0\s*\?\s*\{ confirmedAt: request\.confirmedAt \}\s*:\s*\{\}\)/.exec(src);
+    expect(spread).not.toBeNull();
+    expect(spread?.[0]).not.toMatch(/Date\.now|new Date/);
+    // Behavioral: absent in, absent out — even when at/requestTime/eventTime are ALL populated,
+    // none of them leaks into confirmedAt.
+    await actionRecord.observe(
+      req(),
+      gsr({ transitionId: 't-m6-t8', requestId: 'req:M6IDEM:1787228221628' }), // epoch stamp ⇒ requestTime populated
+      { ...ctx(), eventTime: '2026-09-03T20:00:00Z' },
+    );
+    const [rec] = await actionRecord.query({ tenantId: 'tenant-A', transitionId: 't-m6-t8' });
+    expect(rec.at).toBeTruthy();
+    expect(rec.requestTime).toBe('2026-08-20T12:17:01.628Z'); // read from the kernel's epoch stamp
+    expect(rec.eventTime).toBe('2026-09-03T20:00:00Z');
+    expect(rec.confirmedAt).toBeUndefined();
+    expect('confirmedAt' in rawRow('t-m6-t8')).toBe(false);
+  });
+
+  it('T9 · an offset-bearing timestamp remains exact — parse → observe → disk re-read, byte-identical', async () => {
+    const stamp = '2026-09-03T22:46:00+05:30';
+    const { M365ActionExecuteRequest } = await import('@neuropause/shared');
+    // The real contract accepts the offset form and preserves it verbatim.
+    const parsed = M365ActionExecuteRequest.safeParse(validPayload({ confirmedAt: stamp }));
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.confirmedAt).toBe(stamp);
+    // Carry the PARSED value onward, exactly as the handler would.
+    await actionRecord.observe(reqWithConfirmedAt(parsed.data.confirmedAt), gsr({ transitionId: 't-m6-t9' }), ctx());
+    // Force a genuine re-read from disk rather than trusting the in-memory cache.
+    actionRecord.useDirForTests(dir);
+    const [rec] = await actionRecord.query({ tenantId: 'tenant-A', transitionId: 't-m6-t9' });
+    expect(rec.confirmedAt).toBe(stamp); // never normalized to Z, never re-rendered
+    expect(rawRow('t-m6-t9').confirmedAt).toBe(stamp);
+    expect(readFileSync(join(dir, 'action-records.json'), 'utf8')).toContain('"2026-09-03T22:46:00+05:30"');
+  });
+
+  it('T10 · legacy calls without confirmedAt remain compatible — a pre-M6-shaped request flows through unchanged', async () => {
+    // Exactly the object shape every pre-M6 caller sent: no confirmedAt key, no correlationId key.
+    const legacy = {
+      connectorId: 'conn-1',
+      accountId: 'acct-1',
+      actionId: 'mail.send',
+      params: { to: ['bob@example.com'], subject: 'Q3', body: 'numbers' },
+    };
+    await expect(actionRecord.observe(legacy, gsr({ transitionId: 't-m6-t10' }), ctx())).resolves.toBeUndefined();
+    const [rec] = await actionRecord.query({ tenantId: 'tenant-A', transitionId: 't-m6-t10' });
+    // The chain records exactly as it always did…
+    expect(rec.connectorId).toBe('conn-1');
+    expect(rec.accountId).toBe('acct-1');
+    expect(rec.actionId).toBe('mail.send');
+    expect(rec.recipients.to).toEqual(['bob@example.com']);
+    expect(rec.outcome).toBe('ACKNOWLEDGED');
+    // …and no M6 field was invented for it.
+    expect('confirmedAt' in rawRow('t-m6-t10')).toBe(false);
+    // The pre-M6 CONTRACT caller parses unchanged too.
+    const { M365ActionExecuteRequest } = await import('@neuropause/shared');
+    expect(() =>
+      M365ActionExecuteRequest.parse({ connectorId: 'microsoft-entra', accountId: 'a', actionId: 'mail.send' }),
+    ).not.toThrow();
+  });
+});
