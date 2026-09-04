@@ -42,9 +42,9 @@ PR creation → one draft PR. Approval → status transition + governance record
 
 No new procurement screen; the existing PR detail already renders Submit/Approve/Create-Purchase-Order (routed to the governed commands, S49) and the reorder identity (`requestNumber` `PR-REORDER-…`, `reason`). After conversion the PO carries `PO-PR-REORDER-…` + `sourceRequest`. **No UI change was required** (minimum-UI-change satisfied by existing lineage data). DECISION-MEMO-S90 §5.
 
-## 11. Real-Electron result
+## 11. Real-Electron result — GREEN (operator Mac, 2026-09-04)
 
-`e2e/s90ReorderProcurementLifecycleJourney.e2e.cjs` written + syntax-checked. **PENDING Mac**: product → demand → S85 → S86 → S89 confirmation → draft PR → Submit → Approve → Convert → ONE draft PO (`PO-PR-REORDER-…`, `sourceRequest`); each transition an explicit governed dispatch (the exact commands the UI buttons send); unapproved-convert refused; edit-door approval refused; same-key convert replays; distinct-key re-convert refused (one PO); NO GL, NO inventory mutation.
+`e2e/s90ReorderProcurementLifecycleJourney.e2e.cjs` on the alternate build (`out-seam-s90`), fresh isolated profile, governed bridge only. **Passed every assertion + RESULT on the first run, exit 0**: product → demand → S85 → S86 → S89 confirmation → draft PR (`PR-REORDER-…`, status draft — automation stops here) → an unapproved PR could NOT convert → the edit door refused to hand-set `approved` → Submit → pending → Approve → approved → Convert → **exactly ONE draft PO** carrying the reorder lineage (`PO-PR-REORDER-…`, `sourceRequest` = the PR), PO status draft (not auto-approved/sent), PR ordered + cross-linked; same-key convert replays; distinct-key re-convert refused (still one PO); **NO GL, NO inventory mutation.** Each transition was an explicit governed dispatch — the exact commands the UI buttons send.
 
 ## 12. Frozen-file changes
 
@@ -62,6 +62,6 @@ Multi-step spend-policy chain (unwired engine); segregation of duties / self-app
 
 One non-frozen commit (tests + journey + memo + cert), recorded on landing.
 
-## 16. Final S90 status
+## 16. Final S90 status — GREEN
 
-**Reorder → procurement lifecycle CERTIFIED (TEST-VERIFIED 10/10; real-Electron journey PENDING Mac) with ZERO production change.** The S89 draft PR continues through the existing governed Submit → Approve → Convert commands to exactly one draft PO carrying the reorder lineage; approval is the single defined human-approval gate; every transition is an explicit governed action; idempotent; no automation, no invented policy, no bypass, no economic side effects. Release track PAUSED.
+**Reorder → procurement lifecycle CERTIFIED and VERIFIED end-to-end in the real Electron runtime (operator Mac), with ZERO production change.** The S89 draft PR continues through the existing governed Submit → Approve → Convert commands to exactly one draft PO carrying the reorder lineage (`PO-PR-REORDER-…`, `sourceRequest`); approval is the single defined human-approval gate; every transition is an explicit governed action; idempotent (one PO, incl. durable restart); no automation, no invented policy, no bypass, no economic side effects. Proven by 10/10 focused tests + command-spine/procurement/inventory 338/338 + the real-Electron journey (all assertions + RESULT, exit 0). No frozen change; no FG-S90 token; AI advisory-only. `certification/baseline.json` untouched. Release track PAUSED.
