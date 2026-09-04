@@ -766,6 +766,28 @@ export const ipc = {
     get: () => invoke(IpcChannel.DiagnosticsGet),
   },
 
+  /* ── Security operations (S115 — read-only audit integrity) ── */
+  security: {
+    /**
+     * Read-only audit-integrity status for the governance audit chain. Returns ONLY
+     * {state, algorithm, keyId, keyVersion} — never key material, the chain head, or entries.
+     */
+    auditIntegrity: (): Promise<{
+      state: 'SIGNED' | 'UNSIGNED' | 'VERIFICATION_FAILED';
+      algorithm?: string;
+      keyId?: string;
+      keyVersion?: number;
+    }> =>
+      // rawInvoke (not the typed `invoke`): this read-only channel is intentionally NOT in the frozen
+      // IpcResponseMap, so we type the response at this accessor rather than touch packages/shared.
+      rawInvoke(IpcChannel.SecurityAuditIntegrityStatus) as Promise<{
+        state: 'SIGNED' | 'UNSIGNED' | 'VERIFICATION_FAILED';
+        algorithm?: string;
+        keyId?: string;
+        keyVersion?: number;
+      }>,
+  },
+
   /* ── Connector Framework (NCF) ── */
   connectors: {
     list: () => invoke(IpcChannel.ConnectorsList),

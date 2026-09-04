@@ -581,6 +581,7 @@ export const RUNTIME_CHANNEL_PERMISSIONS: Partial<Record<IpcChannelName, Enterpr
    * renderer message was not.
    */
   [IpcChannel.DiagnosticsGet]: 'operations:read',
+  [IpcChannel.SecurityAuditIntegrityStatus]: 'operations:read', // S115 — read-only audit-integrity status
   /**
    * P13C ROUND 10 — NEW-M2. THE CLASSIFICATION WAS APPLIED TO A CHANNEL, NOT TO
    * THE DATA.

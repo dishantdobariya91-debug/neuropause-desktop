@@ -55,6 +55,10 @@ import {
 import type { IpcBroadcaster } from '@neuropause/shared';
 import { createLogger } from '../logger';
 import type { SecureHandlerDef } from '../ipc/secureBridge';
+import { DurableAuditKeyProvider } from '../security/signedAuditChain';
+import type { SecretStore } from '../security/durableKekProvider';
+import { credentialStore } from '../security/secureStore';
+import { declareChannelResource } from '../ipc/channelResource';
 import { resolveAuthoritativeApprover } from './approverAuthority';
 import { unifiedStore } from '../unified/storeInstance';
 import { graphStore } from '../graph/graphInstance';
@@ -80,6 +84,20 @@ import { runOutsidePrincipal } from '../tenancy/backgroundPrincipal';
 import { randomUUID } from 'node:crypto';
 
 const log = createLogger('workforce');
+
+// S115 FG-S114-AUDIT-STATUS — declare the store the read-only audit-integrity channel reaches.
+// The handler calls auditLog.integrityStatus(), which verifies the workforce governance audit chain
+// (file-backed, tenant-scoped via TenantOwnership('workforce-governance-audit')) and returns only
+// {state, algorithm, keyId, keyVersion}. Read-only; no key material, head, or entries cross the boundary.
+declareChannelResource({
+  channel: IpcChannel.SecurityAuditIntegrityStatus,
+  store: 'workforce-governance-audit',
+  effect: 'read',
+  reason:
+    'Verifies the workforce governance audit chain (SHA-256 hash chain + Ed25519 head signature) and ' +
+    'returns only the sanitized integrity status (state + algorithm + keyId + keyVersion). Read-only: ' +
+    'no key material, no chain head, no audit entries ever leave the main process.',
+});
 
 /**
  * P13C I-A.3 Step 3A — validity window for a transported Bound Decision Claim. Dispatch →
@@ -170,6 +188,18 @@ export async function initWorkforce(deps: WorkforceSubsystemDeps): Promise<Workf
    */
   jobStore.bindScope(activeTenantScope);
   auditLog.bindScope(activeTenantScope);
+
+  // S115 (FG-S114-AUDIT-STATUS) — provision the durable Ed25519 audit-signing key from the existing
+  // OS keychain (credentialStore) and attach it BEFORE load(), so the persisted head is verified on
+  // hydration and signed on subsequent persists. Best-effort: if the keychain is unavailable the
+  // audit log still works and reports UNSIGNED (never a fabricated signature).
+  try {
+    const auditKeyStore: SecretStore = { get: (k) => credentialStore.getSecret(k), set: (k, v) => credentialStore.setSecret(k, v) };
+    const auditKeyProvider = new DurableAuditKeyProvider(auditKeyStore);
+    auditLog.attachSigningKey(await auditKeyProvider.ensureKey());
+  } catch {
+    /* keychain unavailable → audit log remains UNSIGNED (fail-open on availability, never on integrity). */
+  }
 
   await Promise.all([workerRegistry.load(), auditLog.load(), jobStore.load()]);
 
@@ -357,6 +387,13 @@ export async function initWorkforce(deps: WorkforceSubsystemDeps): Promise<Workf
   jobStore.on('changed', onChange);
 
   const handlers: SecureHandlerDef[] = [
+    {
+      // S115 FG-S114-AUDIT-STATUS — read-only audit-integrity status ('operations:read'). Returns ONLY
+      // {state, algorithm?, keyId?, keyVersion?}; never key material. Verifies the live signed chain.
+      channel: IpcChannel.SecurityAuditIntegrityStatus,
+      schema: EmptyRequest,
+      handler: () => auditLog.integrityStatus(),
+    },
     {
       channel: IpcChannel.WorkforceWorkers,
       schema: EmptyRequest,

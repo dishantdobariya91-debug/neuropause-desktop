@@ -103,7 +103,7 @@ export function anchorFromSnapshot(namespace: string, snapshot: AuditChainSnapsh
 }
 
 /** Sign an AuditChain's current head with the durable key. Returns the signature metadata to persist. */
-export function signAuditChainHead(key: AuditSigningKey, namespace: string, chain: AuditChain<unknown>): SignedAuditHead {
+export function signAuditChainHead<T>(key: AuditSigningKey, namespace: string, chain: AuditChain<T>): SignedAuditHead {
   return signAuditHead(key.privateKeyPem, key, anchorFromSnapshot(namespace, chain.snapshot()));
 }
 
