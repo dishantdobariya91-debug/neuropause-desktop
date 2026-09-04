@@ -465,6 +465,10 @@ export async function initConnectors(deps: ConnectorSubsystemDeps): Promise<Conn
       connectorStore.byConnector(connectorId).filter((a) => a.status === 'connected').map((a) => a.id),
     requestSync: (c, a) => connectorService.sync(c, a),
     now: () => Date.now(),
+    // S114 FG-S113-WEBHOOK-EVENT — a verified inbound webhook emits ONE minimal, read-only platform
+    // event onto the EXISTING event bus (deps.publish); tenant = the connector's owning workspace.
+    emitPlatformEvent: (i) => deps.publish(i),
+    resolveTenantId: () => deps.workspaceId(),
   });
 
   const slackAppToken = process.env.NEUROPAUSE_SLACK_APP_TOKEN?.trim();
