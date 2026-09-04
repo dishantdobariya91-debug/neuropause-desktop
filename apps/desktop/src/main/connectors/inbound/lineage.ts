@@ -80,6 +80,32 @@ export function projectInboundLineage(events: readonly PlatformEvent[], tenantId
   return out;
 }
 
+/**
+ * S121 — a pure per-connector rollup of inbound lineage (operational activity intelligence). Derived
+ * ONLY from already-projected, already-tenant-scoped rows; adds no data source and no authority. Sorted
+ * by most-recent activity first. Useful for an operator to see, per connector, how many verified inbound
+ * deliveries arrived and when the last one was.
+ */
+export interface InboundLineageConnectorSummary {
+  connectorId: string;
+  provider: string;
+  events: number;
+  lastReceivedAt: number;
+}
+export function summarizeInboundLineage(rows: readonly InboundLineageRow[]): InboundLineageConnectorSummary[] {
+  const byConnector = new Map<string, InboundLineageConnectorSummary>();
+  for (const r of rows) {
+    const cur = byConnector.get(r.connectorId);
+    if (cur) {
+      cur.events += 1;
+      if (r.receivedAt > cur.lastReceivedAt) cur.lastReceivedAt = r.receivedAt;
+    } else {
+      byConnector.set(r.connectorId, { connectorId: r.connectorId, provider: r.provider, events: 1, lastReceivedAt: r.receivedAt });
+    }
+  }
+  return [...byConnector.values()].sort((a, b) => b.lastReceivedAt - a.lastReceivedAt);
+}
+
 /** The minimal read surface this projection needs — satisfied by the existing `EventBus`. */
 export interface InboundLineageSource {
   replay(filter?: { types?: readonly string[]; limit?: number }): PlatformEvent[];

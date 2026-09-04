@@ -17,7 +17,7 @@
  */
 import type { CommittedCommand, DurableCommandJournal } from './durableCommandJournal';
 import type { DeliveredEventLog } from './deliveredEventLog';
-import { readInboundLineage, type InboundLineageSource } from '../../connectors/inbound/lineage';
+import { readInboundLineage, summarizeInboundLineage, type InboundLineageSource } from '../../connectors/inbound/lineage';
 
 /**
  * The operations this read surface answers — anything else is not a read (falls to the write path).
@@ -70,7 +70,10 @@ export function buildInboundLineage(
   const limit = boundLimit(params.limit);
   const rows = source ? readInboundLineage(source, tenantId) : [];
   const bounded = rows.slice(-limit).reverse(); // most-recent-first, bounded
-  return { ok: true, data: { tenantId, limit, counts: { lineage: rows.length }, lineage: bounded } };
+  // S121 — per-connector activity rollup (operational intelligence), derived purely from the same
+  // tenant-scoped rows. Computed over ALL rows (not just the bounded page) so counts are accurate.
+  const summary = summarizeInboundLineage(rows);
+  return { ok: true, data: { tenantId, limit, counts: { lineage: rows.length, connectors: summary.length }, lineage: bounded, summary } };
 }
 
 /** Operator-safe projection of a committed command — ids/type/actor/status/timestamps only, no payloads. */

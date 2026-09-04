@@ -604,6 +604,22 @@ export const ipc = {
       return promise;
     },
     /**
+     * S121 — governed CONNECTOR INBOUND LINEAGE read (S119/S120). A tenant-safe, bounded, read-only
+     * projection of VERIFIED inbound-webhook events over the ONE EventBus ring, on the SAME governed
+     * `platform:command.dispatch` READ branch (`QueryInboundLineage`). Tenant is server-resolved; the
+     * renderer supplies NO tenant. No new channel/command/store.
+     */
+    inboundLineage: (params: { limit?: number } = {}): Promise<PlatformCommandDispatchResponse> => {
+      const settle = perfRecorder.ipcStart(String(IpcChannel.PlatformCommandDispatch));
+      const promise = rawInvoke(IpcChannel.PlatformCommandDispatch, {
+        operation: 'QueryInboundLineage',
+        payload: params,
+        idempotencyKey: `lineage-${Date.now().toString(36)}`,
+      }) as Promise<PlatformCommandDispatchResponse>;
+      promise.then(settle, settle);
+      return promise;
+    },
+    /**
      * GOVERNED SALES ORDER CREATE (ERP Session 43) — the FIRST renderer WRITE through the governed
      * command spine, closing the S42 exposure gap (the certified path was "correct but dark"). Reuses
      * the EXISTING `platform:command.dispatch` channel + the `CreateSalesOrder` domain command (S21):

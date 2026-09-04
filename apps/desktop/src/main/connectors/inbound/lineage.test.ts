@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EventBus } from '../../platform/eventBus';
-import { projectInboundLineage, readInboundLineage } from './lineage';
+import { projectInboundLineage, readInboundLineage, summarizeInboundLineage } from './lineage';
 import type { PlatformEventInput } from '@neuropause/shared';
 
 function inbound(connectorId: string, provider: string, over: Record<string, string | number | boolean | null> = {}): PlatformEventInput {
@@ -109,6 +109,19 @@ describe('S119 · inbound-event lineage (read-only, tenant-scoped)', () => {
     for (const forbidden of ['secret', 'token', 'signature', 'authorization', 'header', 'payload', 'rawbody']) {
       expect(blob).not.toContain(forbidden);
     }
+  });
+
+  it('S121 — summarizeInboundLineage rolls up per connector, most-recent first, no invented data', () => {
+    const ref = { t: 'tenant-A' as string | null };
+    const bus = busFor(ref);
+    bus.publish(inbound('github', 'github', { receivedAt: 1000 }));
+    bus.publish(inbound('github', 'github', { receivedAt: 3000 }));
+    bus.publish(inbound('slack', 'slack', { receivedAt: 2000 }));
+    const rows = readInboundLineage(bus, 'tenant-A');
+    const summary = summarizeInboundLineage(rows);
+    expect(summary.map((s) => s.connectorId)).toEqual(['github', 'slack']); // github last=3000 > slack last=2000
+    const gh = summary.find((s) => s.connectorId === 'github')!;
+    expect(gh).toMatchObject({ provider: 'github', events: 2, lastReceivedAt: 3000 });
   });
 
   it('STRUCTURAL: lineage imports ONLY the shared type — no store/command-bus/executor/router', () => {
