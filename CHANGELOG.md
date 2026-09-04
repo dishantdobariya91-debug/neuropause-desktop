@@ -7,7 +7,20 @@ All notable changes to NeuroPause are documented here. The format is based on
 
 ## [Unreleased]
 
-_No unreleased changes; the current build is `1.0.0-rc.24`._
+_No unreleased changes beyond the `1.0.0-rc.25` version-tool repair below; no rc.25 artifact,
+tag, or release exists._
+
+## [1.0.0-rc.25] — version-tool repair: the lockfile now moves with the manifests (2026-09-04)
+
+Version bumped from `1.0.0-rc.24` under issuer directives A.363/A.364. The sanctioned bump tool
+(`scripts/bump-version.cjs`) updated only the two manifests and left `package-lock.json`
+behind — by rc.24 the committed lockfile still carried `1.0.0-rc.21` (root) and `1.0.0-rc.22`
+(`apps/desktop`), a five-field / three-value metadata disagreement no gate watched. The tool now
+moves all five authoritative version fields together (both manifests plus the lockfile's root
+`version`, `packages[""].version`, and `packages["apps/desktop"].version`), refuses to finish if
+any of the five disagree afterwards, and is pinned by
+`apps/desktop/src/main/release/versionBump.test.ts` (fixture proofs for rc.25, rc.26, and
+arbitrary semver, plus a live five-field coherence pin). No dependency resolution changed.
 
 ## [1.0.0-rc.24] — S57–S64 governance ships: reversals, policy closures, and the un-reversal door shut (2026-09-03)
 
