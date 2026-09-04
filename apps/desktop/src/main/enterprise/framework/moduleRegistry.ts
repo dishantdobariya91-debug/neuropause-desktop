@@ -120,6 +120,19 @@ const ECONOMIC_DELETE_GUARD: Record<string, (record: { fields: Record<string, un
   // framework does not import from modules/ — ids are stable persisted keys).
   'finance-payment-reversals': () =>
     'A payment reversal is immutable historical evidence carrying a posted compensating GL entry — it cannot be deleted. The original payment, the reversal, and their ledger effects are permanent records.',
+  // ERP Session 97 (F-S97-1) — the stock ledger is the AUTHORITATIVE inventory source: a product's
+  // on-hand / reserved / available are re-derived from the movement history, which `list()` excludes
+  // `deleted` from. Soft-deleting a POSTED movement therefore silently changes on-hand stock (and
+  // leaves its already-posted GL orphaned) — a backdoor around the module's own declared immutability
+  // ("corrections by compensating movement, history never rewritten"), which its validate hook enforces
+  // on EDIT but not on DELETE. Refused here (independent of `force`); the coherent correction is void
+  // (which reverses the ledger + GL) or a compensating movement. Key is the literal module id (=
+  // STOCK_MOVEMENTS_MODULE_ID; the framework does not import from modules/ — ids are stable persisted
+  // keys). Void/draft/importer rows carry no live on-hand effect and are unaffected.
+  'inventory-movements': (r) =>
+    String(r.fields.status ?? '') === 'posted'
+      ? 'A posted stock movement is the authoritative inventory ledger — it cannot be deleted (that would silently change on-hand stock and orphan its posted GL). Void it (which reverses the ledger and GL) or post a compensating movement.'
+      : null,
 };
 import { ENTERPRISE_CHANNEL_PERMISSIONS } from '../authzGate';
 import type {
