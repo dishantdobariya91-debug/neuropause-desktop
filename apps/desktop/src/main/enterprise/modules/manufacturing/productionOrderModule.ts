@@ -14,7 +14,9 @@ import type {
   BillOfMaterials,
   EnterpriseEntity,
   EnterpriseModuleDescriptor,
+  EnterpriseRecordInput,
   EnterpriseRecordSummary,
+  EnterpriseRecordValidation,
   ProductionOrder,
 } from '@neuropause/shared';
 import {
@@ -25,6 +27,7 @@ import {
   componentConsumption,
   productionOrderFromRecord,
   productionOrderSummaryFallback,
+  validateEnterpriseRecordInput,
 } from '@neuropause/shared';
 import {
   EnterpriseRecordStore,
@@ -93,6 +96,12 @@ export const PRODUCTION_ORDER_DESCRIPTOR: EnterpriseModuleDescriptor = {
       default: 'draft',
       badge: true,
       filterable: true,
+      // ERP Session 98 (F-S98-1) — machine-owned: born `draft`, transitions ONLY through the
+      // lifecycle actions (Plan / Allocate / Start / Complete / Cancel), which post the real
+      // inventory movements (production_consumption / production_output) and the WIP/GL. A hand-set
+      // status via the edit door moved NO material yet let `complete` produce finished goods from
+      // nothing (Cr WIP with no Dr WIP) — the validate hook below refuses status edits.
+      readOnly: true,
       options: [
         { value: 'draft', label: 'Draft', tone: 'neutral' },
         { value: 'planned', label: 'Planned', tone: 'blue' },
@@ -141,6 +150,30 @@ export function createProductionOrderModule(storePath: string, aiRunner?: Produc
     descriptor: PRODUCTION_ORDER_DESCRIPTOR,
     store,
     hooks: {
+      // ERP Session 98 (F-S98-1) — the production status machine OWNS lifecycle transitions. An EDIT
+      // (recordId present ⇒ the EnterpriseModuleUpdate door) must never hand-set `status`: a
+      // hand-flipped `running`/`completed` moved NO material yet let `complete` yield finished goods
+      // with no consumption (Cr WIP with no Dr WIP → phantom finished stock + broken WIP), and a
+      // direct edit to `completed` even fired the variance-settlement onChange GL. Transitions happen
+      // ONLY through the lifecycle actions, which post the guarded inventory movements. Creates (no
+      // recordId) and status-less importer rows are unaffected; the actions never re-enter this hook.
+      // Mirrors the sales-order (S45) + stock-movement (S55) machine-owned-status guards.
+      validate: (input: EnterpriseRecordInput): EnterpriseRecordValidation => {
+        const result = validateEnterpriseRecordInput(PRODUCTION_ORDER_DESCRIPTOR, input);
+        if (result.ok && input.recordId) {
+          const prior = store.get(input.recordId);
+          const priorStatus = String(prior?.fields.status ?? '');
+          const nextStatus = result.values.status;
+          if (prior && priorStatus !== '' && typeof nextStatus === 'string' && nextStatus !== priorStatus) {
+            return {
+              ok: false,
+              values: result.values,
+              errors: { status: 'Production order status changes only through the lifecycle actions (Plan, Allocate, Start, Complete, Cancel).' },
+            };
+          }
+        }
+        return result;
+      },
       // ERP Session 5-Fix: when an order reaches 'completed' (via the classic
       // COMPLETE action here, or the MES path emitting an order update), settle
       // the production variance ONCE — clear residual WIP to 5910 from the order's

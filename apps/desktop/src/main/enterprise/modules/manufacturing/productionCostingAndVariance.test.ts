@@ -234,14 +234,18 @@ describe('Session 5-Fix C — completing an order settles variance via onChange'
     await postConsumption(ctx, { movementNumber: 'C-E1', product: 'RM-1', warehouse: 'WH-1', quantity: 6, referenceModule: PRODUCTION_ORDERS_MODULE_ID, referenceRecord: orderId, reason: 'consume' });
     await postOutput(ctx, { movementNumber: 'O-E1', product: 'FG-1', warehouse: 'WH-1', quantity: 2, referenceModule: PRODUCTION_ORDERS_MODULE_ID, referenceRecord: orderId, reason: 'output' });
 
-    // Completing the order fires onChange → settlement.
-    await update(PRODUCTION_ORDERS_MODULE_ID, orderId, { status: 'completed' });
+    // ERP Session 98 (F-S98-1): production status is now machine-owned — a status EDIT is refused, so
+    // completion goes the way the COMPLETE action / MES path does: a raw store write to `completed`
+    // (the lifecycle-action door, which never re-enters the validate hook), and a benign field edit
+    // then re-fires onChange → settlement (the same re-fire technique used above for movements).
+    registry.get(PRODUCTION_ORDERS_MODULE_ID)!.store.update(orderId, { fields: { status: 'completed' }, actor: 'operator@np.dev', now: T0 });
+    await update(PRODUCTION_ORDERS_MODULE_ID, orderId, { operator: 'settle' }); // fires onChange (status already 'completed')
     expect(bal(STOCK_ACCOUNTS.productionVariance, 'debit')).toBe(6);
     const varCount = () => registry.get(JOURNAL_ENTRIES_MODULE_ID)!.store.list().filter((e) => String(e.fields.entryNumber) === productionVarianceEntryNumber(orderId)).length;
     expect(varCount()).toBe(1);
 
     // A later benign update must not settle a second time.
-    await update(PRODUCTION_ORDERS_MODULE_ID, orderId, { status: 'completed' });
+    await update(PRODUCTION_ORDERS_MODULE_ID, orderId, { operator: 'again' });
     expect(varCount()).toBe(1);
   });
 });
