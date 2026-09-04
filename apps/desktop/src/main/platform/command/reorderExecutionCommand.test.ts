@@ -179,6 +179,21 @@ describe('S89 idempotency — one recommendation → at most one PR', () => {
     expect(prList()).toHaveLength(1);
   });
 
+  it('a DIFFERENT-key re-execution of the same recommendation is refused through the DURABLE journal (already-drafted); one PR', async () => {
+    // The real runtime uses the durable command journal (not the in-memory backend). A second
+    // execution of the SAME recommendation under a DIFFERENT idempotency key does not replay — it
+    // executes fresh, re-reads the store, and is refused by the S88 deterministic-number guard.
+    const { reportId } = await seedAndReport();
+    const journal = new DurableCommandJournal(tmp('journal'));
+    const deps = { registry, ctx, resolveScope: () => scope, journal };
+    const a = await dispatchCommand(mkCmd({ reportId, sku: 'SKU-1', idem: 'dk1' }), deps);
+    expect(a.ok).toBe(true);
+    const b = await dispatchCommand(mkCmd({ reportId, sku: 'SKU-1', idem: 'dk2' }), deps);
+    expect(b.ok).toBe(false);
+    expect(b.error).toBe('REORDER_NOT_EXECUTABLE:already-drafted');
+    expect(prList()).toHaveLength(1);
+  });
+
   it('replay across a durable-journal RESTART creates no duplicate', async () => {
     const { reportId } = await seedAndReport();
     const file = tmp('journal');
