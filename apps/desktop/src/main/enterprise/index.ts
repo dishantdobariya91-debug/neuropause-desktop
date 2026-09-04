@@ -222,6 +222,7 @@ import { serialModule } from './modules/inventory/serialModuleInstance';
 import { inventoryAgingModule } from './modules/inventory/inventoryAgingModuleInstance';
 import { atpModule } from './modules/inventory/atpModuleInstance';
 import { reorderRecommendationModule } from './modules/inventory/demandReorderModuleInstance';
+import { reorderDecisionModule } from './modules/inventory/reorderDecisionModuleInstance';
 import {
   supplierModule,
   vendorContractModule,
@@ -1304,6 +1305,7 @@ export async function initEnterprise(deps: EnterpriseDeps): Promise<EnterpriseSu
   registerModule(inventoryAgingModule); // Inventory → Aging (immutable point-in-time on-hand-by-age snapshots; reads the ledger, mutates nothing)
   registerModule(atpModule); // Inventory → ATP (on-hand/reserved/available/incoming/ATP per SKU+warehouse; reads ledger + open POs, mutates nothing)
   registerModule(reorderRecommendationModule); // Inventory → Reorder Recommendations (advisory reorder-attention register from the canonical reorder engine + demand trend; drafts no PR, moves no stock, posts no GL)
+  registerModule(reorderDecisionModule); // Inventory → Reorder Decision Readiness (decision intelligence over the canonical reorder recommendation + spend policy; drafts no PR, moves no stock, posts no GL, executes nothing automatically)
   registerModule(supplierModule); // Procurement → Suppliers
   registerModule(vendorContractModule); // Procurement → Vendor Contracts (FW-7: dated agreements gate PO approval — 101st registered module)
   registerModule(purchaseRequestModule); // Procurement → Purchase Requests
