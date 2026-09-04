@@ -49,9 +49,9 @@ Re-reads live product + open supply and re-runs `assessReorder` at execution. `s
 
 Exactly one PR (draft); **zero PO; zero inventory mutation; zero GL; no supplier award** — before/after snapshots in the unit side-effect test and the journey.
 
-## 10. Real-Electron result
+## 10. Real-Electron result — GREEN on the execution path (operator Mac, 2026-09-04)
 
-`e2e/s89GovernedReorderExecutionJourney.e2e.cjs` written + syntax-checked. **PENDING Mac**: product → receive → ship → S85 → S86 → dispatch (governed `platform:command.dispatch`) → ONE draft PR `PR-REORDER-<reportNumber>-SKU-1` × 430, lineage, no supplier → re-dispatch same key = replay (PR count 1) → distinct re-execution refused → stale case refused → **no PO, no inventory mutation, no GL** throughout.
+`e2e/s89GovernedReorderExecutionJourney.e2e.cjs` on the alternate build (`out-seam-s89`), fresh isolated profile, governed bridge only. **All execution / idempotency / side-effect assertions PASSED**: product → receive → ship → S85 → S86 → dispatch (`platform:command.dispatch`) → ONE draft PR `PR-REORDER-REORDER-DECISION-2026-09-04-1-SKU-1` × 430, recommendation lineage, **no supplier** → re-dispatch same key = replay (PR count 1) → distinct re-execution refused → **no PO, no inventory mutation, no GL**. The full main suite passed on the Mac. The final STALE step initially failed as a **class-B harness race** (it dispatched immediately after a receive, before the async stock reconciliation updated `availableStock`, so the command correctly still saw a triggered position); the command's stale logic is unit-proven (15/15, incl. `stale-not-triggered`). Fixed by polling the live `availableStock` until it reflects the receipt before asserting the stale refusal — journey re-run PENDING to confirm the corrected step.
 
 ## 11. Frozen-file changes
 

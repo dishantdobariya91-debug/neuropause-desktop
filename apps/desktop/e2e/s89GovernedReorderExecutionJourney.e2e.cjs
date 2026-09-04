@@ -102,8 +102,18 @@ async function main() {
     const decRep2 = await create('inventory-reorder-decision', { asOfDate: '2026-08-31' });
     const row2 = JSON.parse(String(decRep2.record.fields.rows)).find((r) => r.sku === 'SKU-2');
     assert(row2 && row2.readinessStatus === 'READY_FOR_OPERATOR_REVIEW', 'SKU-2 decision READY at generation');
-    // Restore SKU-2's position AFTER the report: receive plenty.
+    // Restore SKU-2's position AFTER the report: receive plenty, then WAIT for the async stock
+    // reconciliation to land in availableStock before dispatching (the command reads live stock;
+    // dispatching before reconciliation would race, not test staleness).
     assert((await create('inventory-movements', { movementNumber: 'MV-2', type: 'receive', product: 'SKU-2', warehouse: 'WH-1', quantity: 1000 })).ok, 'received 1000 for SKU-2 (position restored)');
+    let sku2Available = 0;
+    for (let i = 0; i < 40; i += 1) {
+      const p = (await listOf('inventory-products')).find((r) => String(r.fields.sku) === 'SKU-2');
+      sku2Available = Number(p?.fields?.availableStock ?? 0);
+      if (sku2Available > 200) break;
+      await sleep(250);
+    }
+    assert(sku2Available > 200, `SKU-2 availableStock reconciled above the reorder level (${sku2Available})`);
     const rStale = await dispatch('CreatePurchaseRequestFromReorderRecommendation', decRep2.record.id, { sku: 'SKU-2' }, `reorder-exec:${decRep2.record.id}:SKU-2`);
     assert(rStale && rStale.ok === false && /stale/i.test(JSON.stringify(rStale.error ?? '')), 'stale recommendation refused (fail closed)');
     assert((await listOf('procurement-requests')).every((p) => String(p.fields.product) !== 'SKU-2'), 'no PR drafted for the stale SKU-2');
