@@ -18,6 +18,7 @@
 import type { CommittedCommand, DurableCommandJournal } from './durableCommandJournal';
 import type { DeliveredEventLog } from './deliveredEventLog';
 import { readInboundLineage, summarizeInboundLineage, type InboundLineageSource } from '../../connectors/inbound/lineage';
+import { summarizeReliability } from '../../operationsPlatform/operationalReliability';
 
 /**
  * The operations this read surface answers — anything else is not a read (falls to the write path).
@@ -31,6 +32,10 @@ export const OPERATIONAL_READ_OPERATIONS: ReadonlySet<string> = new Set([
   // branch (server-resolved principal, RBAC operations:read, tenant validation, bounded projection);
   // routed to `buildInboundLineage`. No new channel/command/bus/store.
   'QueryInboundLineage',
+  // S122 — operational reliability intelligence: a SIBLING read on this SAME governed branch, a pure
+  // deterministic projection over the SAME durable command journal (delivery-reliability posture +
+  // recurring error signatures). Routed to `buildReliabilitySummary`. No new channel/command/bus/store.
+  'QueryReliabilitySummary',
 ]);
 
 export const MAX_LIMIT = 100;
@@ -74,6 +79,44 @@ export function buildInboundLineage(
   // tenant-scoped rows. Computed over ALL rows (not just the bounded page) so counts are accurate.
   const summary = summarizeInboundLineage(rows);
   return { ok: true, data: { tenantId, limit, counts: { lineage: rows.length, connectors: summary.length }, lineage: bounded, summary } };
+}
+
+/**
+ * S122 — the governed operational RELIABILITY read. `tenantId` MUST be the authoritative
+ * server-resolved tenant (never a renderer claim). Reads only the EXISTING per-tenant journal records
+ * via `journal.records(tenantId)`; mutates nothing, creates no ERP transaction, and returns a bounded,
+ * sanitized reliability posture. An optional `objective` in [0,1] adds a request-based error budget
+ * (no verdict is computed without one — no invented SLO policy). `byCommandType` and `topErrors` are
+ * bounded by `limit`.
+ */
+export function buildReliabilitySummary(
+  journal: DurableCommandJournal,
+  tenantId: string,
+  params: OperationalReadParams & { objective?: unknown },
+): OperationalReadResult {
+  const limit = boundLimit(params.limit);
+  // Optional SLO objective — validated to a proper fraction; anything else is treated as "not supplied"
+  // (FAILS CLOSED to no verdict rather than fabricating a target).
+  let objective: number | undefined;
+  if (params.objective !== undefined && params.objective !== null && params.objective !== '') {
+    const n = Number(params.objective);
+    if (Number.isFinite(n) && n >= 0 && n <= 1) objective = n;
+  }
+  const records = journal.records(tenantId); // tenant-scoped by construction
+  const summary = summarizeReliability(records, objective !== undefined ? { objective } : {});
+  return {
+    ok: true,
+    data: {
+      tenantId,
+      limit,
+      totals: summary.totals,
+      successRatio: summary.successRatio,
+      deliveryFailureRatio: summary.deliveryFailureRatio,
+      byCommandType: summary.byCommandType.slice(0, limit),
+      topErrors: summary.topErrors.slice(0, limit),
+      ...(summary.budget ? { budget: summary.budget } : {}),
+    },
+  };
 }
 
 /** Operator-safe projection of a committed command — ids/type/actor/status/timestamps only, no payloads. */

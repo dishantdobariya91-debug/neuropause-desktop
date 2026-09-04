@@ -25,6 +25,7 @@ import { OperationalHistoryPanel } from './OperationalHistoryPanel';
 import { DeliveryOperationsPanel } from './DeliveryOperationsPanel';
 import { AuditIntegrityPanel } from './AuditIntegrityPanel';
 import { ConnectorLineagePanel } from './ConnectorLineagePanel';
+import { OperationalReliabilityPanel } from './OperationalReliabilityPanel';
 import { PlatformHealthPanel } from './PlatformHealthPanel';
 import { EmptyState, Grid, LoadingBlock } from '@renderer/operationsCenter/primitives';
 import {
@@ -334,6 +335,7 @@ export function EopsPlatformTab(): JSX.Element {
 
       <PlatformHealthPanel />
       <DeliveryOperationsPanel />
+      <OperationalReliabilityPanel />
       <ConnectorLineagePanel />
       <AuditIntegrityPanel />
       <OperationalHistoryPanel />
