@@ -17,6 +17,7 @@
  */
 import type { CommittedCommand, DurableCommandJournal } from './durableCommandJournal';
 import type { DeliveredEventLog } from './deliveredEventLog';
+import { readInboundLineage, type InboundLineageSource } from '../../connectors/inbound/lineage';
 
 /**
  * The operations this read surface answers — anything else is not a read (falls to the write path).
@@ -26,6 +27,10 @@ import type { DeliveredEventLog } from './deliveredEventLog';
 export const OPERATIONAL_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'QueryOperationalHistory',
   'QueryDeliveryOperations',
+  // S120 — read-only connector inbound-event lineage (S119). A SIBLING read on this SAME governed
+  // branch (server-resolved principal, RBAC operations:read, tenant validation, bounded projection);
+  // routed to `buildInboundLineage`. No new channel/command/bus/store.
+  'QueryInboundLineage',
 ]);
 
 export const MAX_LIMIT = 100;
@@ -49,6 +54,24 @@ export function boundLimit(v: unknown): number {
 }
 
 export const trimError = (e: unknown): string => String(e).slice(0, 200);
+
+/**
+ * S120 — the governed connector inbound-event lineage read (S119 projection). `tenantId` MUST be the
+ * authoritative server-resolved tenant (never a renderer claim). Reads only the EXISTING per-tenant
+ * EventBus ring via `readInboundLineage`; mutates nothing, creates no ERP transaction, and returns a
+ * bounded, sanitized projection that carries no credential/secret. A null source (bus not yet bound
+ * at boot) returns an honest empty lineage — never an error, never fabricated rows.
+ */
+export function buildInboundLineage(
+  source: InboundLineageSource | undefined,
+  tenantId: string,
+  params: OperationalReadParams,
+): OperationalReadResult {
+  const limit = boundLimit(params.limit);
+  const rows = source ? readInboundLineage(source, tenantId) : [];
+  const bounded = rows.slice(-limit).reverse(); // most-recent-first, bounded
+  return { ok: true, data: { tenantId, limit, counts: { lineage: rows.length }, lineage: bounded } };
+}
 
 /** Operator-safe projection of a committed command — ids/type/actor/status/timestamps only, no payloads. */
 function sanitizeCommand(rec: CommittedCommand): Record<string, unknown> {

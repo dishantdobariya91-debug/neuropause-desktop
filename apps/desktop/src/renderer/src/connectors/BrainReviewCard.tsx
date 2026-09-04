@@ -18,6 +18,17 @@ export interface BrainReview {
   readonly expectedEffect: string;
   readonly verificationPlan: string;
   readonly expiry: string;
+  /**
+   * FG-S119-BRAINREVIEW-METADATA (S120) — ADDITIVE OPTIONAL, strictly ADVISORY display metadata from the
+   * S117/S118 pre-execution layer. Rendered read-only; it is NOT a control and influences no decision.
+   */
+  readonly metadata?: {
+    readonly estimatedTokens: number;
+    readonly estimatedCostUsd: number;
+    readonly pricingKnown: boolean;
+    readonly estimateOnly: true;
+    readonly argsValid: boolean;
+  };
 }
 
 export function BrainReviewCard({ review }: { review: BrainReview | null | undefined }): JSX.Element | null {
@@ -32,6 +43,12 @@ export function BrainReviewCard({ review }: { review: BrainReview | null | undef
     ['Verification', review.verificationPlan],
     ['Expires', review.expiry],
   ];
+  const meta = review.metadata;
+  const costLabel = meta
+    ? meta.pricingKnown
+      ? `~$${meta.estimatedCostUsd} (estimate)`
+      : 'estimate only (pricing unknown)'
+    : '';
   return (
     <div aria-label="Proposal review" className="rounded-xl border border-[var(--hairline)] p-3 text-sm">
       {rows.map(([label, value]) => (
@@ -40,6 +57,12 @@ export function BrainReviewCard({ review }: { review: BrainReview | null | undef
           <span className="text-ink">{value}</span>
         </div>
       ))}
+      {meta && (
+        // FG-S119-BRAINREVIEW-METADATA — advisory, read-only. Not a control; changes no decision.
+        <div data-review-field="AI estimate" className="mt-1 border-t border-[var(--hairline)] pt-1 text-2xs text-faint">
+          AI estimate (advisory): ~{meta.estimatedTokens} tokens · {costLabel} · arguments {meta.argsValid ? 'valid' : 'invalid'}
+        </div>
+      )}
     </div>
   );
 }

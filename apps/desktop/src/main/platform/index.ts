@@ -44,6 +44,7 @@ import { EventBus } from './eventBus';
 import type { TenantScope } from '@neuropause/shared';
 import { TimelineService } from './timelineService';
 import { PlatformEventApi } from './eventApi';
+import { platformBusRef } from './platformBusRef';
 import { registerSubscribers } from './subscribers';
 import { DiagnosticsService, makeCheck, type DiagnosticProbe } from './diagnostics';
 
@@ -159,6 +160,9 @@ export async function initPlatform(deps: {
   await timeline.init();
 
   const api = new PlatformEventApi(bus, timeline);
+  // S120 — publish the ONE tenant-scoped replay handle for the governed connector-lineage read.
+  // Not a second bus: a reference to this same api's replay (which wraps the single EventBus).
+  platformBusRef.current = api;
 
   /**
    * The viewer resolver, late-bound. P13C ROUND 9 — F5.

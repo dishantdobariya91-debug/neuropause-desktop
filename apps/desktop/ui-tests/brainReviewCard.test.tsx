@@ -39,4 +39,17 @@ describe('FG-9 · BrainReviewCard (truthful surface)', () => {
     const { container } = render(<BrainReviewCard review={null} />);
     expect(container.querySelector('[aria-label="Proposal review"]')).toBeNull();
   });
+
+  it('S120 — advisory AI metadata renders read-only when present (estimate + arg validity)', () => {
+    render(<BrainReviewCard review={{ ...review, metadata: { estimatedTokens: 42, estimatedCostUsd: 0, pricingKnown: false, estimateOnly: true, argsValid: true } }} />);
+    const row = screen.getByText(/AI estimate \(advisory\)/).textContent ?? '';
+    expect(row).toContain('42 tokens');
+    expect(row).toContain('estimate only (pricing unknown)');
+    expect(row).toContain('arguments valid');
+  });
+
+  it('S120 — no metadata ⇒ no AI-estimate row (additive-only)', () => {
+    render(<BrainReviewCard review={review} />);
+    expect(screen.queryByText(/AI estimate/)).toBeNull();
+  });
 });

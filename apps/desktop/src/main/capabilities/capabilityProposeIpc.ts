@@ -103,15 +103,29 @@ export const capabilityHandlers = withRuntimeAuthz([
           },
         );
         if (laneResult === null) return response;
-        // S118 — the LIVE consumer of the S117 advisory metadata: log the estimate + tool-arg validity for
-        // operator/audit visibility BEFORE confirmation. ADVISORY ONLY — decision-neutral, no authority, and
-        // the metadata never crosses the renderer boundary (only `review` is spread into the response).
+        // S118 — advisory metadata computed on the live propose path. S120 (FG-S119-BRAINREVIEW-METADATA) —
+        // carry it to the confirm panel as the authorized ADDITIVE OPTIONAL `brainReview.metadata` field.
+        // Strictly advisory + display-only: estimate + argument-validity, NO authority/tenant/secret; it
+        // influences no authorization/approval/execution decision (decision-neutral).
+        const m = laneResult.metadata;
         log.info(
-          `AI proposal advisory metadata — est ~${laneResult.metadata.estimate.totalTokens} tokens` +
-            `${laneResult.metadata.estimate.pricingKnown ? ` ($${laneResult.metadata.estimate.costUsd})` : ' (cost: pricing unknown)'}; ` +
-            `args ${laneResult.metadata.toolValidation?.ok ? 'valid' : 'INVALID'}`,
+          `AI proposal advisory metadata — est ~${m.estimate.totalTokens} tokens` +
+            `${m.estimate.pricingKnown ? ` ($${m.estimate.costUsd})` : ' (cost: pricing unknown)'}; ` +
+            `args ${m.toolValidation?.ok ? 'valid' : 'INVALID'}`,
         );
-        return { ...response, brainReview: laneResult.review };
+        return {
+          ...response,
+          brainReview: {
+            ...laneResult.review,
+            metadata: {
+              estimatedTokens: m.estimate.totalTokens,
+              estimatedCostUsd: m.estimate.costUsd,
+              pricingKnown: m.estimate.pricingKnown,
+              estimateOnly: true,
+              argsValid: m.toolValidation?.ok ?? false,
+            },
+          },
+        };
       } catch (err) {
         log.warn('Brain-propose lane failed — returning the propose response without brainReview', err);
         return response;
