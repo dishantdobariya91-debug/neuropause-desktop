@@ -12,9 +12,10 @@
  * ERP store. It evaluates attribute policies and returns an inert decision object. Nothing in the
  * live app consumes that decision to grant or deny access yet — enforcement is a separate, gated
  * step (an FG gate + operator ruling, because wiring ABAC into live authorization CHANGES
- * authorization semantics; see the S110 certification). Until then this is a policy AUTHORING +
- * SIMULATION + TESTING capability (the source's `simulate`/`test`), fail-closed by construction:
- * a consumer must treat anything other than an explicit `permit` as NOT permitted.
+ * authorization semantics; see the S110 certification and DECISION-MEMO-S116-ABAC). Until then this
+ * is a policy AUTHORING + SIMULATION + TESTING + EXPLANATION capability (the source's `simulate`/`test`
+ * plus the S116 advisory `explainAbacDecision`), fail-closed by construction: a consumer must treat
+ * anything other than an explicit `permit` as NOT permitted.
  *
  * The target architecture is RBAC + (future, gated) contextual ABAC inside the SAME canonical
  * authorization path — never a second auth system, never an AI-usable permission generator.
@@ -131,6 +132,85 @@ export function simulatePolicies(policies: readonly AbacPolicy[], req: AbacReque
   return { matched: applicablePolicies(policies, req).map((p) => ({ id: p.id, effect: p.effect })), result: evaluatePolicies(policies, req) };
 }
 
+/**
+ * S116 — ADVISORY ABAC DECISION EXPLANATION ("why was this permitted / denied / not-applicable").
+ *
+ * A pure, read-only capability that annotates evaluatePolicies() with a per-policy, per-condition
+ * trace so an operator can UNDERSTAND a contextual decision before any enforcement slice exists.
+ * THIS GRANTS NOTHING: the explanation carries no roles, no token, no permission set — only booleans,
+ * ids, the inert AbacDecision, and a human summary. It NEVER echoes the RESOLVED attribute values
+ * from the request (which could be sensitive subject/resource data); it reports only whether each
+ * condition HELD and whether its attribute was MISSING. The `value` it shows is the POLICY's own
+ * declared comparison value (policy configuration, supplied by the caller), never request data.
+ * Same fail-closed rule as isAbacPermitted: anything other than an explicit `permit` is NOT permitted.
+ */
+export interface AbacConditionTrace {
+  attribute: string;
+  op: AbacConditionOp;
+  /** the POLICY's declared comparison value (not request data). */
+  value?: unknown;
+  held: boolean;
+  /** true when the request attribute was absent (undefined) — a fail-safe non-match, not a mismatch. */
+  attributeMissing: boolean;
+}
+export interface AbacPolicyTrace {
+  id: string;
+  effect: AbacPolicyEffect;
+  version: number;
+  /** target (resourceType/action) matched the request. */
+  targetMatched: boolean;
+  /** targetMatched AND every condition held. */
+  applicable: boolean;
+  conditions: AbacConditionTrace[];
+}
+export interface AbacExplanation {
+  decision: AbacDecision;
+  /** isAbacPermitted(decision) — fail-closed; deny AND not-applicable both → false. */
+  permitted: boolean;
+  decidingPolicyId?: string;
+  /** per-policy trace, in evaluation order. */
+  policies: AbacPolicyTrace[];
+  summary: string;
+}
+
+function targetMatches(p: AbacPolicy, req: AbacRequest): boolean {
+  return (
+    (p.target.resourceType === undefined || p.target.resourceType === req.resource.type) &&
+    (p.target.action === undefined || p.target.action === req.action)
+  );
+}
+
+/**
+ * Explain the deny-wins decision for a request: for every policy, whether its target matched, whether
+ * each condition held (and if it failed only because the attribute was missing), and whether the policy
+ * was therefore applicable — then the deciding policy under deny-wins. Pure; grants nothing.
+ */
+export function explainAbacDecision(policies: readonly AbacPolicy[], req: AbacRequest): AbacExplanation {
+  const traces: AbacPolicyTrace[] = policies.map((p) => {
+    const targetMatched = targetMatches(p, req);
+    const conditions: AbacConditionTrace[] = p.conditions.map((c) => ({
+      attribute: c.attribute,
+      op: c.op,
+      value: c.value,
+      held: conditionHolds(req, c),
+      attributeMissing: resolveAttribute(req, c.attribute) === undefined,
+    }));
+    const applicable = targetMatched && conditions.every((c) => c.held);
+    return { id: p.id, effect: p.effect, version: p.version, targetMatched, applicable, conditions };
+  });
+
+  const decision = evaluatePolicies(policies, req);
+  const permitted = isAbacPermitted(decision);
+  const summary =
+    decision.effect === 'deny'
+      ? `DENIED by policy ${decision.policyId} (deny wins over any permit).`
+      : decision.effect === 'permit'
+        ? `PERMITTED by policy ${decision.policyId}. Advisory only — RBAC/CST/approval still apply.`
+        : 'NOT-APPLICABLE — no policy matched; fail-closed, this is NOT a permit.';
+
+  return { decision, permitted, decidingPolicyId: decision.policyId, policies: traces, summary };
+}
+
 /** Case-runner: assert expected effects before rollout (the source's `test`). */
 export function testPolicies(
   policies: readonly AbacPolicy[],
@@ -180,5 +260,9 @@ export class AbacPolicySet {
   }
   simulate(req: AbacRequest): { matched: Array<{ id: string; effect: AbacPolicyEffect }>; result: AbacDecision } {
     return simulatePolicies(this.list(), req);
+  }
+  /** S116 — advisory decision explanation over the current policy set. Grants nothing. */
+  explain(req: AbacRequest): AbacExplanation {
+    return explainAbacDecision(this.list(), req);
   }
 }
