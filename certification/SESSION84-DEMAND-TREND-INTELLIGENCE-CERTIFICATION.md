@@ -70,6 +70,12 @@ Writes ONLY its own snapshot; shipping store byte-identical after generation; **
 
 Demand-trend → reorder/safety-stock governed integration (execution semantics undefined); order-vs-fulfilled demand-fill-rate; trend classification bands (operator policy); multi-month backfilled history via a governed dated-demand path; KPI/Executive-Center demand exception surfacing (optional; separate gate).
 
+## Mac validation (operator, 2026-09-04) — GREEN
+
+FG-S84 registration applied (isolated frozen commit; `enterprise/index.ts` the only frozen file). Then:
+- Real-Electron `e2e/s84DemandTrendJourney.e2e.cjs`: **passed** (all assertions + RESULT, exit 0) on the alternate build (`out-seam-s84`), fresh isolated profile, governed bridge only — product → receive → create + governed ship (canonical demand) → demand-trend register (2 SKUs, total 50, SKU-1 = 30 in 2026-09, direction `insufficient-data` for one real month) → deterministic byte-identical regeneration → shipping store byte-identical (read-only) → governed read.
+- Full main suite (excluding the class-D `releaseDiscipline` paused-release guards) and full UI suite: **all passed** — clean of S84 failures.
+
 ## 18. Final S84 status
 
-**PARTIAL — non-frozen core COMPLETE, unit-GREEN; BLOCKED on the FG-S84 registration token; real-Electron journey + full main/UI/build PENDING Mac (after registration).** No GREEN claimed without real-Electron. Release track PAUSED. S85 not started.
+**GREEN — Governed Demand-Trend Intelligence VERIFIED end-to-end in the real Electron runtime.** Non-frozen core + FG-S84 registration (2 additive lines, one frozen file) + real-Electron journey + full main/UI all proven. Canonical actual demand reused verbatim (`calculateHistoricalShipped`); zero policy invented (threshold-free direction, historical only); shipping source read-only; no GL posted. `certification/baseline.json` untouched. Release track PAUSED. S85 not started.
