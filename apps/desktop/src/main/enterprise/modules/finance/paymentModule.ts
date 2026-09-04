@@ -245,6 +245,18 @@ export function createPaymentModule(
         const invRecord = findInvoice(invoiceStore, payment.invoiceRef);
         if (!invRecord) {
           errors.invoiceRef = 'No matching invoice was found.';
+        } else {
+          // ERP Session 95 — the sell-side MIRROR of the buy-side guard (vendorPaymentModule refuses
+          // paying a draft/cancelled bill). A DRAFT or CANCELLED customer invoice has NO booked
+          // Accounts Receivable — AR is booked only when the invoice is ISSUED (Dr AR / Cr Revenue).
+          // Recording a receipt against it would post Dr Cash / Cr AR and mark it settled against a
+          // liability that was never booked, leaving AR net-negative and revenue unrecognised. Fail
+          // closed — issue the invoice first. (`paid`/over-application is handled by the overpay guard
+          // below; `partially_paid`/`issued` remain payable.)
+          const invStatus = String(invRecord.fields.status ?? '');
+          if (invStatus === 'draft' || invStatus === 'cancelled') {
+            errors.invoiceRef = `Cannot settle a ${invStatus} invoice — issue it first.`;
+          }
         }
 
         const ledger = store.list().map(paymentFromRecord);
