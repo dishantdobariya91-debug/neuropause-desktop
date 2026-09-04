@@ -136,6 +136,7 @@ import { taxReportModule } from './modules/finance/taxReportModuleInstance';
 import { arAgingModule } from './modules/finance/arAgingModuleInstance';
 import { bankStatementModule } from './modules/finance/bankStatementModuleInstance';
 import { budgetModule } from './modules/finance/budgetModuleInstance';
+import { budgetVarianceModule } from './modules/finance/budgetVarianceModuleInstance';
 import { vendorBillModule } from './modules/finance/vendorBillModuleInstance';
 import { apAgingModule } from './modules/finance/apAgingModuleInstance';
 import { fixedAssetModule } from './modules/finance/fixedAssetModuleInstance';
@@ -1276,6 +1277,7 @@ export async function initEnterprise(deps: EnterpriseDeps): Promise<EnterpriseSu
   registerModule(arAgingModule); // Finance → Receivables Aging (open AR bucketed by days past due)
   registerModule(bankStatementModule); // Finance → Bank Statements (deterministic reconciliation)
   registerModule(budgetModule); // Finance → Budgets (measured against posted books only)
+  registerModule(budgetVarianceModule); // Finance → Budget Variance (immutable point-in-time portfolio variance register; reads budgets + posted journals, mutates nothing, posts no GL)
   registerModule(vendorBillModule); // Finance → Vendor Bills (payable mirror; books AP via GL seam)
   registerModule(apAgingModule); // Finance → Payables Aging (open AP bucketed by days past due)
   registerModule(fixedAssetModule); // Finance → Fixed Assets (capitalization, depreciation, disposal)
