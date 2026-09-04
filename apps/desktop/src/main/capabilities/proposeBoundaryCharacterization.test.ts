@@ -112,7 +112,7 @@ describe('PIN C · artifact-null is not an independent path — it is exactly !r
 
 describe('PIN D · the propose path emitter map — every silence argument depends on this', () => {
   const EXPECTED: ReadonlyArray<{ file: readonly string[]; emitters: number }> = [
-    { file: ['capabilities', 'capabilityProposeIpc.ts'], emitters: 2 }, // P4-MIN refusal warn + the lane catch
+    { file: ['capabilities', 'capabilityProposeIpc.ts'], emitters: 3 }, // P4-MIN refusal warn + the lane catch + S118 advisory-metadata info
     { file: ['liveBrain', 'brainProposeLane.ts'], emitters: 4 }, // :92 :109 :162 warn · :166 info
     { file: ['capabilities', 'capabilityProposeCore.ts'], emitters: 0 },
     { file: ['liveBrain', 'proposal.ts'], emitters: 0 },
@@ -131,9 +131,9 @@ describe('PIN D · the propose path emitter map — every silence argument depen
     });
   }
 
-  it('the WHOLE propose path has exactly SIX emitters — the FORWARD map (five before P4-MIN)', () => {
+  it('the WHOLE propose path has exactly SEVEN emitters — the FORWARD map (six before S118 advisory-metadata info)', () => {
     const total = EXPECTED.reduce((n, e) => n + count(read(...e.file)), 0);
-    expect(total).toBe(6);
+    expect(total).toBe(7);
   });
 
   it('EVERY emitter is at a level the FILE SINK accepts — none at debug (F-P35)', () => {
@@ -145,7 +145,7 @@ describe('PIN D · the propose path emitter map — every silence argument depen
       const src = read(...e.file).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
       for (const m of src.matchAll(/log\.(info|warn|error|debug)\(/g)) levels.push(m[1]);
     }
-    expect(levels).toHaveLength(6);
+    expect(levels).toHaveLength(7);
     expect(levels.filter((l) => l === 'debug')).toEqual([]);
     // The load-bearing one specifically: the lane's SUCCESS emitter must be sink-reachable,
     // because "no second stash line exists in the preserved log" depends on it entirely.

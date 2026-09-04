@@ -37,8 +37,17 @@ import { capabilityGraphSources } from '../capabilityGraph/liveSources';
 import { mutationAssuranceFor, M365_CONNECTOR_ID } from '../capabilities/liveCapabilitySources';
 import type { TenantStamp } from '../tenancy/tenantStamp';
 import { createLogger } from '../logger';
+import { z } from 'zod';
+import { buildProposalMetadata, type AiProposalMetadata } from '../ai/proposalValidation';
 
 const log = createLogger('brain-propose-lane');
+
+/**
+ * S118 — the mail.send tool's OWN argument schema (structural, not policy): a non-empty recipient list plus
+ * a subject and body. Used ONLY by the advisory `buildProposalMetadata` to validate the proposed arguments
+ * before confirmation. It grants nothing and gates nothing — the governed CST path is the sole authority.
+ */
+const MAIL_SEND_ARGS_SCHEMA = z.object({ to: z.array(z.string()).min(1), subject: z.string(), body: z.string() }).strict();
 
 /** GOVERNED freshness/expiry window (10 min): the operator's reading time at the ASK panel; enforced at confirm. */
 const FRESHNESS_WINDOW_MS = 10 * 60_000;
@@ -70,13 +79,24 @@ function canon(value: unknown): string {
 }
 
 /**
+ * S118 — the lane result: the FG-9 review fields PLUS advisory, pre-execution AI-proposal metadata (an
+ * estimate + a structured tool-argument validation of the proposed mail). The metadata is ADVISORY ONLY —
+ * it carries no authority, changes no decision, and never reaches the renderer; the caller logs it.
+ */
+export interface BrainProposeLaneResult {
+  readonly review: BrainReviewFields;
+  readonly metadata: AiProposalMetadata;
+}
+
+/**
  * Compose the real state, build the certified proposal, stash it for the FG-10 gate, and return the FG-9
- * review fields — or null when the S4 engine refuses (the response then honestly carries no brainReview).
+ * review fields + advisory metadata — or null when the S4 engine refuses (the response then honestly
+ * carries no brainReview).
  */
 export async function runBrainProposeLane(
   mandate: OperatorMandate,
   deps: BrainProposeLaneDeps,
-): Promise<BrainReviewFields | null> {
+): Promise<BrainProposeLaneResult | null> {
   const scope = deps.scope();
   if (scope === null) return null; // no resolved tenant scope → no Brain proposal (fail-closed, silent-honest)
   // ALIGNMENT 1 — the gate re-derives its tenant key as the WORKSPACE id; the lane must key identically.
@@ -164,5 +184,16 @@ export async function runBrainProposeLane(
   }
   stashProposal(built.proposal);
   log.info(`Brain proposal stashed for the FG-10 gate — capability=${mandate.capabilityId} tenant=${tenantKey}`);
-  return toBrainReview(built.proposal);
+
+  // S118 — advisory, pre-execution metadata (estimate + tool-argument validation). PURE + ADVISORY: it is
+  // computed from the same VALIDATED mandate, grants nothing, and does not gate the proposal. Model is
+  // unknown on this lane (the serving drafter is model-agnostic) ⇒ pricingKnown=false, cost 0 (honest).
+  const metadata = buildProposalMetadata({
+    model: 'unknown',
+    promptText: mandate.purpose ?? '',
+    completionText: `${mandate.subject}\n${mandate.body}`,
+    tool: { name: mandate.capabilityId, schema: MAIL_SEND_ARGS_SCHEMA, rawArgs: { to: [...mandate.to], subject: mandate.subject, body: mandate.body } },
+  });
+
+  return { review: toBrainReview(built.proposal), metadata };
 }

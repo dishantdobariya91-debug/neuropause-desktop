@@ -50,8 +50,8 @@ beforeEach(() => clearProposals());
 
 describe('S5.4 · brainProposeLane → FG-10 gate alignment (the production seam)', () => {
   it('END TO END: a lane proposal is ADMITTED and CONSUMED by the REAL execution gate for the exact execute request', async () => {
-    const review = await runBrainProposeLane(mandate, laneDeps());
-    expect(review).not.toBeNull();
+    const result = await runBrainProposeLane(mandate, laneDeps());
+    expect(result).not.toBeNull();
     // The panel's execute request, verbatim shape: { actionId, accountId, params: {to[], subject, body} }.
     const gate = l6ExecutionGate({ workspaceId: () => WS }, { actionId: 'mail.send', accountId: 'acct-1', params: executeParams }, NOW + 60_000);
     expect(gate.ok).toBe(true);
@@ -75,27 +75,48 @@ describe('S5.4 · brainProposeLane → FG-10 gate alignment (the production seam
   });
 
   it('no resolved tenant scope → NO proposal, nothing stashed (fail-closed)', async () => {
-    const review = await runBrainProposeLane(mandate, laneDeps({ scope: () => null }));
-    expect(review).toBeNull();
+    const result = await runBrainProposeLane(mandate, laneDeps({ scope: () => null }));
+    expect(result).toBeNull();
     expect(takeProposal(proposalKey(WS, 'mail.send', 'acct-1', executeParams))).toBeNull();
   });
 
   it('cross-tenant action evidence → tenant not provably single → NO proposal (deny-by-default)', async () => {
-    const review = await runBrainProposeLane(mandate, laneDeps({ actions: async () => [crossTenantAction] }));
-    expect(review).toBeNull();
+    const result = await runBrainProposeLane(mandate, laneDeps({ actions: async () => [crossTenantAction] }));
+    expect(result).toBeNull();
     expect(takeProposal(proposalKey(WS, 'mail.send', 'acct-1', executeParams))).toBeNull();
   });
 
   it('the review fields are display-honest: recipient in action, irreversible risk, ISO expiry, resolvable evidence', async () => {
-    const review = await runBrainProposeLane(mandate, laneDeps());
-    expect(review).not.toBeNull();
-    expect(review!.purpose).toBe('ceremony rehearsal');
-    expect(review!.action).toContain('mail.send');
-    expect(review!.action).toContain('neuropause033@gmail.com');
-    expect(review!.risk).toContain('irreversible');
-    expect(review!.evidenceRefs.some((e) => e.startsWith('snapshot:live-brain-state:'))).toBe(true);
-    expect(review!.expiry).toContain('2026-08-19T12:10:00');
-    expect(review!.verificationPlan).toContain('send-corroboration');
+    const result = await runBrainProposeLane(mandate, laneDeps());
+    expect(result).not.toBeNull();
+    const review = result!.review;
+    expect(review.purpose).toBe('ceremony rehearsal');
+    expect(review.action).toContain('mail.send');
+    expect(review.action).toContain('neuropause033@gmail.com');
+    expect(review.risk).toContain('irreversible');
+    expect(review.evidenceRefs.some((e) => e.startsWith('snapshot:live-brain-state:'))).toBe(true);
+    expect(review.expiry).toContain('2026-08-19T12:10:00');
+    expect(review.verificationPlan).toContain('send-corroboration');
+  });
+
+  it('S118 — the lane produces ADVISORY metadata (estimate + tool-arg validation) that grants no authority', async () => {
+    const result = await runBrainProposeLane(mandate, laneDeps());
+    expect(result).not.toBeNull();
+    const meta = result!.metadata;
+    // advisory estimate present and estimate-only
+    expect(meta.advisory).toBe(true);
+    expect(meta.estimate.estimateOnly).toBe(true);
+    expect(meta.estimate.totalTokens).toBeGreaterThan(0);
+    // the proposed mail args validate against the tool's own schema
+    expect(meta.toolValidation?.toolName).toBe('mail.send');
+    expect(meta.toolValidation?.ok).toBe(true);
+    // NO authority-shaped fields cross the metadata (advisory only) — and no raw recipient/body leak
+    const blob = JSON.stringify(meta).toLowerCase();
+    for (const forbidden of ['grant', 'permission', 'role', 'tenant', 'confirmed', 'authority', 'credential', 'allow']) {
+      expect(blob).not.toContain(forbidden);
+    }
+    expect(blob).not.toContain('neuropause033@gmail.com'); // recipient never echoed in metadata
+    expect(blob).not.toContain('the demo is friday'); // body never echoed in metadata
   });
 
   it('PROPOSE-SIDE PURITY — the lane imports no executor / CST / governedSend value (the Brain never reaches)', () => {

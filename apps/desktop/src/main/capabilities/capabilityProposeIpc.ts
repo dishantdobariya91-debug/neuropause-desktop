@@ -86,7 +86,7 @@ export const capabilityHandlers = withRuntimeAuthz([
       // ADDITIVE-ONLY: any refusal/failure yields no `brainReview` and the response is exactly as today — the send
       // may still proceed as a human-composed governed send; it is simply not Brain-proposed.
       try {
-        const brainReview = await runBrainProposeLane(
+        const laneResult = await runBrainProposeLane(
           {
             capabilityId: artifact.capabilityId,
             accountId: artifact.accountId,
@@ -102,7 +102,16 @@ export const capabilityHandlers = withRuntimeAuthz([
             nowMs: () => Date.now(),
           },
         );
-        return brainReview === null ? response : { ...response, brainReview };
+        if (laneResult === null) return response;
+        // S118 — the LIVE consumer of the S117 advisory metadata: log the estimate + tool-arg validity for
+        // operator/audit visibility BEFORE confirmation. ADVISORY ONLY — decision-neutral, no authority, and
+        // the metadata never crosses the renderer boundary (only `review` is spread into the response).
+        log.info(
+          `AI proposal advisory metadata — est ~${laneResult.metadata.estimate.totalTokens} tokens` +
+            `${laneResult.metadata.estimate.pricingKnown ? ` ($${laneResult.metadata.estimate.costUsd})` : ' (cost: pricing unknown)'}; ` +
+            `args ${laneResult.metadata.toolValidation?.ok ? 'valid' : 'INVALID'}`,
+        );
+        return { ...response, brainReview: laneResult.review };
       } catch (err) {
         log.warn('Brain-propose lane failed — returning the propose response without brainReview', err);
         return response;
