@@ -214,6 +214,8 @@ export const IpcChannel = {
   ConnectorHealthCheck: 'connectors:health',
   ConnectorLogs: 'connectors:logs',
   ConnectorSyncState: 'connectors:sync-state',
+  /** S115 FG-S114-AUDIT-STATUS — read-only audit-integrity status (SIGNED/UNSIGNED/VERIFICATION_FAILED + algo/keyId/keyVersion). No secrets. */
+  SecurityAuditIntegrityStatus: 'security:auditIntegrity.status',
   ConnectorEventBroadcast: 'connectors:event',
   // P4.1 Connector Runtime v2 — operator controls (command), runtime-state read, and the
   // lifecycle (from→to transition) broadcast the Runtime Supervisor emits.
@@ -1365,6 +1367,7 @@ export const RUNTIME_INVOKABLE_CHANNELS: readonly IpcChannelName[] = [
   IpcChannel.EnterpriseTimelineExport,
   IpcChannel.BriefingGenerate,
   IpcChannel.RecommendationsGenerate,
+  IpcChannel.SecurityAuditIntegrityStatus,
   IpcChannel.FounderAsk,
   IpcChannel.FounderAskV2,
   IpcChannel.FounderSuggestions,
