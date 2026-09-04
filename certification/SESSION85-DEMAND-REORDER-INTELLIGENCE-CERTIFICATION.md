@@ -73,6 +73,12 @@ Unit + journey pinned: generating a recommendation drafts NO purchase request, c
 
 Demand→reorder-point adjustment policy; MOQ/order-multiple/EOQ; supplier selection for a recommendation; the governed execution gate (recommendation → PR draft authority); optional KPI/Executive-Center reorder-attention surfacing.
 
+## Mac validation (operator, 2026-09-04) — GREEN
+
+FG-S85 registration applied (isolated frozen commit; `enterprise/index.ts` the only frozen file). Then:
+- Real-Electron `e2e/s85DemandReorderJourney.e2e.cjs`: **passed** (all 19 assertions + RESULT, exit 0) on the alternate build (`out-seam-s85`), fresh isolated profile, governed bridge only — product → receive → ship (demand) → reorder recommendation (attention `reorder`, `recommendedQuantity 430` from the canonical engine) → deterministic byte-identical regeneration → governed read → **and every critical negative: NO purchase request drafted, NO PO created, products byte-identical (no inventory mutation), shipping byte-identical (read-only), journal count unchanged (no GL posted).**
+- Full main suite (excluding the class-D `releaseDiscipline` paused-release guards) and full UI suite: **all passed** — clean of S85 failures.
+
 ## 19. Final S85 status
 
-**PARTIAL — non-frozen recommendation core COMPLETE, unit-GREEN; BLOCKED on the FG-S85 registration token; real-Electron journey + full main/UI/build PENDING Mac (after registration).** Execution intentionally NOT built (recommendation boundary held; operator decisions in the memo). No GREEN claimed without real-Electron. Release track PAUSED. S86 not started.
+**GREEN — Governed Demand→Reorder Recommendation Intelligence VERIFIED end-to-end in the real Electron runtime, advisory-only.** Non-frozen recommendation core + FG-S85 registration (2 additive lines, one frozen file) + real-Electron journey + full main/UI all proven. Reuses the canonical reorder engine (`assessReorder`/`openSupplyForProduct`) + S84 demand; zero policy invented; the execution seam (`runReorderCheck`) is NOT wired; proven no PR/PO/inventory/GL from generation. `certification/baseline.json` untouched. Execution stays an operator-gated future gate (memo §C). Release track PAUSED. S86 not started.
