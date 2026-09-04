@@ -164,6 +164,7 @@ import { pricingRuleModule } from './modules/sales/pricingRuleModuleInstance';
 import { commissionPlanModule } from './modules/sales/commissionPlanModuleInstance';
 import { commissionStatementModule } from './modules/sales/commissionStatementModuleInstance';
 import { revenueForecastModule } from './modules/sales/revenueForecastModuleInstance';
+import { demandTrendModule } from './modules/sales/demandTrendModuleInstance';
 import { productModule } from './modules/inventory/productModuleInstance';
 import { warehouseModule } from './modules/inventory/warehouseModuleInstance';
 import { stockMovementModule } from './modules/inventory/stockMovementModuleInstance';
@@ -1269,6 +1270,7 @@ export async function initEnterprise(deps: EnterpriseDeps): Promise<EnterpriseSu
   registerModule(commissionPlanModule); // Sales → Commission Plans (the commission rule book)
   registerModule(commissionStatementModule); // Sales → Commission Statements (immutable per-period payouts)
   registerModule(revenueForecastModule); // Sales → Revenue Forecast (immutable pipeline snapshots)
+  registerModule(demandTrendModule); // Sales → Demand Trend (immutable historical demand-by-month register from shipped/delivered shipments; analytical only, mutates nothing, posts no GL)
   registerModule(paymentModule); // Finance → Payments
   registerModule(ledgerAccountModule); // Finance → Chart of Accounts (GL)
   registerModule(journalEntryModule); // Finance → Journal (GL double-entry)
