@@ -72,7 +72,13 @@ export type DomainCommandType =
   | 'ReverseCustomerPayment'
   | 'ReverseVendorPayment'
   // Shipment-document ship: real stock issue + linked-order advance (existing action verbatim).
-  | 'ShipShipmentDocument';
+  | 'ShipShipmentDocument'
+  // ERP Session 89 — operator-initiated governed reorder execution: from an S86 decision report row,
+  // re-read the LIVE state, apply the S88 execution policy (deriveReorderExecutionDecision — fail
+  // closed if stale / not triggered / quantity changed / already drafted), and create exactly ONE
+  // DRAFT purchase request through the EXISTING CreatePurchaseRequest create path. Never automatic,
+  // never a PO, never inventory/GL. The deterministic PR number (S88) is the identity + idempotency.
+  | 'CreatePurchaseRequestFromReorderRecommendation';
 
 /** Where a command originated. Descriptive only — it grants nothing. */
 export type CommandSource = 'electron' | 'web' | 'mobile' | 'api' | 'agent' | 'test';
@@ -177,6 +183,10 @@ export const EVENT_FOR_COMMAND: Record<DomainCommandType, DomainEventType> = {
   RejectPurchaseRequest: 'PurchaseRequestRejected',
   ConvertPurchaseRequestToPO: 'PurchaseRequestConvertedToPO',
   CreateSalesOrder: 'SalesOrderCreated',
+  // S89 — a reorder-driven PR is still a PurchaseRequest creation; reuse the existing event (no new
+  // DomainEventType, so no frozen shared change). The deterministic PR number + correlation carry the
+  // reorder lineage in the event detail.
+  CreatePurchaseRequestFromReorderRecommendation: 'PurchaseRequestCreated',
   PostGoodsReceipt: 'GoodsReceiptPosted',
   ApproveSupplierInvoice: 'SupplierInvoiceApproved',
   PaySupplierInvoice: 'SupplierInvoicePaid',
@@ -244,4 +254,7 @@ export const PERMISSION_FOR_COMMAND: Record<DomainCommandType, EnterprisePermiss
   ReverseCustomerPayment: 'operations:manage',
   ReverseVendorPayment: 'operations:manage',
   ShipShipmentDocument: 'warehouse:manage',
+  // S89 — a reorder execution drafts a purchase request; it requires the SAME procurement authority
+  // as CreatePurchaseRequest. Nobody gains or loses access; a reorder is not a privileged shortcut.
+  CreatePurchaseRequestFromReorderRecommendation: 'procurement:manage',
 };

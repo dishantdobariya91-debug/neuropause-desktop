@@ -32,6 +32,7 @@ import {
   VENDOR_PAYMENTS_MODULE_ID,
 } from '@neuropause/shared';
 import { ipc } from '@renderer/lib/ipc';
+import { ReorderExecutionPanel } from './ReorderExecutionPanel';
 
 /** The governed record-command union — derived from the ONE ipc helper, never duplicated. */
 type GovernedRecordOp = Parameters<typeof ipc.platform.dispatchRecordCommand>[0];
@@ -1071,6 +1072,18 @@ function RecordDetail({
       {/* Line items + approval. Renders nothing for a module with no document
           spec, so the 90-odd master-data modules are unaffected. */}
       <DocumentPanel moduleId={module.id} recordId={record.id} onChanged={onChanged} />
+      {/* S89 — governed reorder EXECUTION. Renders ONLY on the S86 decision report, and only offers
+          "Create Purchase Request" for rows the S88 policy marks executable. Explicit two-step
+          confirmation → the governed CreatePurchaseRequestFromReorderRecommendation command → one
+          draft PR. Nothing automatic; no PO/inventory/GL. */}
+      {module.id === 'inventory-reorder-decision' && (
+        <ReorderExecutionPanel
+          reportId={record.id}
+          reportNumber={String(record.fields.reportNumber ?? '')}
+          rowsJson={String(record.fields.rows ?? '[]')}
+          onCreated={onRefresh}
+        />
+      )}
       {/*
         Cross-domain connections for this record (Program 6). Loaded with the
         detail, not the list, so opening a module does not traverse every row.

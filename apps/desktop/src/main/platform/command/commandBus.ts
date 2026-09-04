@@ -24,7 +24,9 @@
  * the durability of the idempotency+event+outbox differs.
  */
 import type { TenantScope } from '@neuropause/shared';
-import { CUSTOMERS_MODULE_ID, FINANCE_MODULE_ID, GOODS_RECEIPTS_MODULE_ID, IpcChannel, ORDERS_MODULE_ID, PAYMENTS_MODULE_ID, PURCHASE_REQUESTS_MODULE_ID, QUOTES_MODULE_ID, VENDOR_BILLS_MODULE_ID, VENDOR_PAYMENTS_MODULE_ID } from '@neuropause/shared';
+import { CUSTOMERS_MODULE_ID, FINANCE_MODULE_ID, GOODS_RECEIPTS_MODULE_ID, IpcChannel, ORDERS_MODULE_ID, PAYMENTS_MODULE_ID, PRODUCTS_MODULE_ID, PURCHASE_ORDERS_MODULE_ID, PURCHASE_REQUESTS_MODULE_ID, QUOTES_MODULE_ID, VENDOR_BILLS_MODULE_ID, VENDOR_PAYMENTS_MODULE_ID, openSupplyForProduct, productFromRecord } from '@neuropause/shared';
+import { REORDER_DECISION_MODULE_ID } from '../../enterprise/modules/inventory/reorderDecisionModule';
+import { deriveReorderExecutionDecision } from '../../enterprise/modules/inventory/reorderExecutionPolicy';
 import {
   buildModuleHandlers,
   INTERNAL_ACTION_ORIGIN,
@@ -124,6 +126,71 @@ async function route(cmd: DomainCommand, deps: CommandDispatchDeps, call: Handle
       const id = r.record.id;
       // Compensation (case C): if the durable commit fails, soft-delete the PR.
       return ok({ id }, { aggregateId: id, aggregateType: 'PurchaseRequest', rollback: async () => { prStore()?.softDelete(id, { actor: who(), now: now() }); } });
+    }
+    case 'CreatePurchaseRequestFromReorderRecommendation': {
+      // ERP Session 89 — operator-initiated governed REORDER EXECUTION. From an S86 decision report
+      // row, re-read the LIVE state, apply the S88 execution policy, and create exactly ONE DRAFT
+      // purchase request through the SAME governed CreatePurchaseRequest path. Never automatic; never
+      // a PO; never inventory/GL; never a supplier award. Fail-closed on any stale/duplicate condition.
+      const reportId = str(cmd.target?.id);
+      const sku = str(cmd.payload.sku).trim();
+      if (!reportId) return no('MISSING_RECOMMENDATION');
+      if (!sku) return no('MISSING_SKU');
+
+      // 1 · Read the S86 decision report (tenant-scoped: store.get applies scopeOrDeny, so a report
+      // belonging to another tenant is indistinguishable from one that does not exist → refused).
+      const decisionStore = deps.registry.get(REORDER_DECISION_MODULE_ID)?.store;
+      if (decisionStore) await decisionStore.load();
+      const report = decisionStore?.get(reportId);
+      if (!report || report.status === 'deleted') return no('RECOMMENDATION_NOT_FOUND');
+      const reportNumber = str(report.fields.reportNumber);
+      let rows: Array<Record<string, unknown>> = [];
+      try { rows = JSON.parse(str(report.fields.rows) || '[]') as Array<Record<string, unknown>>; } catch { return no('RECOMMENDATION_UNREADABLE'); }
+      const row = rows.find((r) => str(r.sku) === sku);
+      if (!row) return no('RECOMMENDATION_ROW_NOT_FOUND');
+      const expectedQuantity = Number(row.suggestedQuantity ?? 0);
+
+      // 2 · Re-read the LIVE product + open supply (the S88 stale check reads current canonical state).
+      const productStore = deps.registry.get(PRODUCTS_MODULE_ID)?.store;
+      if (productStore) await productStore.load();
+      const productRecord = productStore?.list().find((r) => str(r.fields.sku) === sku && r.status !== 'deleted');
+      if (!productRecord) return no('PRODUCT_NOT_FOUND');
+      const product = productFromRecord(productRecord);
+      const poStore = deps.registry.get(PURCHASE_ORDERS_MODULE_ID)?.store;
+      const prs = prStore();
+      if (prs) await prs.load();
+      if (poStore) await poStore.load();
+      const openPRs = prs ? prs.list() : [];
+      const openSupply = openSupplyForProduct({ sku, productId: productRecord.id, purchaseRequests: openPRs, purchaseOrders: poStore ? poStore.list() : [] });
+      const existingRequestNumbers = new Set(openPRs.filter((r) => r.status !== 'deleted').map((r) => str(r.fields.requestNumber)));
+
+      // 3 · S88 execution policy — fail closed unless still executable (deny-by-default; no invention).
+      const decision = deriveReorderExecutionDecision({ reportNumber, product, openSupply, expectedQuantity, existingRequestNumbers });
+      if (!decision.executable) return no(`REORDER_NOT_EXECUTABLE:${decision.status}`);
+
+      // 4 · Create the DRAFT PR through the EXISTING governed create path (no duplicate implementation).
+      // The deterministic requestNumber (S88) encodes (reportNumber, sku) — the identity + lineage; the
+      // command's correlationId ties the durable event/journal to the business transaction.
+      const r = (await call(IpcChannel.EnterpriseModuleCreate, {
+        moduleId: PURCHASE_REQUESTS_MODULE_ID,
+        fields: {
+          requestNumber: decision.requestNumber,
+          department: 'Inventory',
+          requester: who(),
+          product: sku,
+          quantity: decision.expectedQuantity,
+          priority: product.availableStock <= 0 ? 'urgent' : 'high',
+          status: 'draft',
+          reason: `Reorder execution from ${reportNumber} (${sku}). ${decision.reason}`,
+        },
+      })) as { ok: boolean; record?: { id: string } };
+      if (!(r.ok && r.record)) return no('VALIDATION_FAILED');
+      const id = r.record.id;
+      // Compensation (case C): a failed durable commit soft-deletes the draft PR (no economic effect).
+      return ok(
+        { id, requestNumber: decision.requestNumber, sku, quantity: decision.expectedQuantity, reportNumber },
+        { aggregateId: id, aggregateType: 'PurchaseRequest', rollback: async () => { prStore()?.softDelete(id, { actor: who(), now: now() }); } },
+      );
     }
     case 'SubmitPurchaseRequest':
     case 'ApprovePurchaseRequest':

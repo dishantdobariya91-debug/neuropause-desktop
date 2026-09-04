@@ -715,6 +715,29 @@ export const ipc = {
       return promise;
     },
     /**
+     * GOVERNED REORDER EXECUTION (ERP Session 89) — from an S86 decision report row, create exactly
+     * ONE draft purchase request through the `CreatePurchaseRequestFromReorderRecommendation`
+     * command. The command re-reads the LIVE state and applies the S88 execution policy (fail closed
+     * if stale / not triggered / quantity changed / already drafted); the DETERMINISTIC PR number
+     * (S88) is the identity + idempotency, so a repeated confirmation never creates a second PR. The
+     * `idempotencyKey` is derived deterministically from (reportId, sku) so a double-click replays.
+     * Draft only — never a PO, never inventory, never GL, never a supplier award.
+     */
+    createReorderPurchaseRequest: (
+      reportId: string,
+      sku: string,
+    ): Promise<PlatformCommandDispatchResponse> => {
+      const settle = perfRecorder.ipcStart(String(IpcChannel.PlatformCommandDispatch));
+      const promise = rawInvoke(IpcChannel.PlatformCommandDispatch, {
+        operation: 'CreatePurchaseRequestFromReorderRecommendation',
+        target: reportId,
+        payload: { sku },
+        idempotencyKey: `reorder-exec:${reportId}:${sku}`,
+      }) as Promise<PlatformCommandDispatchResponse>;
+      promise.then(settle, settle);
+      return promise;
+    },
+    /**
      * GOVERNED SUPPLIER PAYMENT (ERP Session 49) — a CLEARED vendor payment books real
      * Dr AP / Cr Cash, so it is created through the governed `PaySupplierInvoice` command
      * (status force-set `cleared` server-side; overpayment/duplicate-ref refused by the
