@@ -62,6 +62,13 @@ The module writes ONLY its own snapshot; books (accounts + journal + budgets) by
 
 Cost/profit-centre variance dimension (needs journal dimensions); committed-spend (open-PO) budget consumption vs actual; non-GL domain budgets (project/inventory actuals); KPI/Executive Center budget-variance exception surfacing (optional; would need the S80 kpiIntelligence path or a frozen Executive Center field — separate gate).
 
+## Mac validation (operator, 2026-09-04) — GREEN
+
+FG-S83 registration applied (isolated frozen commit; `enterprise/index.ts` the only frozen file). Then:
+- Real-Electron `e2e/s83BudgetVarianceJourney.e2e.cjs`: **passed** on the alternate build (`out-seam-s83`), fresh isolated profile, governed bridge only — accounts → budgets → posted journals → variance register (Opex 500/900/+400/**over**, Sales 600/400/**under**, totals 1100/1300) → **deterministic byte-identical regeneration** → **books byte-identical, no GL posted** → governed tenant-scoped read.
+- Full main suite (excluding the two class-D `releaseDiscipline` paused-release guards): **982 files, 10263 passed / 7 skipped, 0 failures** — clean of all S83 failures.
+- Full UI suite: **455/455**.
+
 ## 16. Final S83 status
 
-**PARTIAL — non-frozen core COMPLETE, unit-GREEN; BLOCKED on the FG-S83 registration token; real-Electron journey + full main/UI/build PENDING Mac (after registration).** No GREEN claimed without real-Electron. Release track PAUSED. S84 not started.
+**GREEN — Governed Budget-Variance Intelligence VERIFIED end-to-end in the real Electron runtime.** Non-frozen core + FG-S83 registration (2 additive lines, one frozen file) + real-Electron journey + full main/UI all proven. Zero policy invented (all semantics reused from the canonical budget module + `deriveBudgetActuals`); books read-only; no GL posted. `certification/baseline.json` untouched. Release track PAUSED. S84 not started.
