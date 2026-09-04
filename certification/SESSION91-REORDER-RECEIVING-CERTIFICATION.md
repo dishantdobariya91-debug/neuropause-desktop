@@ -50,9 +50,9 @@ recommendation → PR (`PR-REORDER-<report>-<sku>`) → PO (`PO-PR-REORDER-…`,
 
 One valid GR; one inventory movement; canonical Dr Inventory / Cr GRNI (expected — the defined goods-receipt accounting, tested not invented); durable event + outbox + audit; complete lineage. **No** vendor invoice, no payment, no unrelated GL, no COGS, no duplicate PO, no auto-procurement/payment. `reorderReceivingLifecycle.test.ts` side-effect block + the journey.
 
-## 13. Real-Electron result
+## 13. Real-Electron result — GREEN (operator Mac, 2026-09-04)
 
-`e2e/s91ReorderReceivingJourney.e2e.cjs` written + syntax-checked. **PENDING Mac**: product → demand → S86 → S89 confirmation → PR → Submit → Approve → Convert → PO → assign warehouse → PO Approve → Send → (draft receive refused) → Receive Goods → pending GR → (edit-door received refused) → PostGoodsReceipt → ONE receive movement, inventory 70 → 500 (+430), canonical GRNI; replay/re-post do not double-post; one GR per PO; full lineage.
+`e2e/s91ReorderReceivingJourney.e2e.cjs` on the alternate build (`out-seam-s91`), fresh isolated profile, governed bridge only. **Passed every assertion + RESULT on the first run, exit 0**: product → demand → S86 → S89 confirmation → PR → Submit → Approve → Convert → PO (`PO-PR-REORDER-…`) → assign warehouse WH-1 → (draft PO receive refused) → PO Approve → Send → Receive Goods → pending GR (`GR-PO-PR-REORDER-…`, PO↔GR cross-link) → (edit-door `received` refused) → PostGoodsReceipt → **inventory 70 → 500 (+430)**, exactly ONE new receive movement (referenceRecord = GR), canonical Dr Inventory / Cr GRNI booked; same-key re-post replays (inventory unchanged), distinct-key re-post refused (already received, inventory unchanged); one GR per PO; no duplicate PO. Full lineage recommendation → PR → PO → GR → movement.
 
 ## 14. UI result
 
@@ -74,6 +74,6 @@ PO approve/send governance promotion to command-bus commands + S46 fence for PO/
 
 One non-frozen commit (tests + journey + memo + cert), recorded on landing.
 
-## 19. Final S91 status
+## 19. Final S91 status — GREEN
 
-**Reorder receiving CERTIFIED (TEST-VERIFIED 11/11; real-Electron journey PENDING Mac) with ZERO production change.** The reorder PO enters the existing governed receiving path to exactly one inventory movement + canonical GRNI, inventory += received quantity; approval-before-receive enforced; idempotent (no double-post on replay/restart); full lineage; no auto-receive, no invented policy, no bypass, no unrelated economic effects. Release track PAUSED.
+**Reorder receiving CERTIFIED and VERIFIED end-to-end in the real Electron runtime (operator Mac), with ZERO production change.** The reorder PO enters the existing governed receiving path to exactly one inventory movement + canonical GRNI (inventory 70 → 500, +430); approval-before-receive enforced; idempotent (no double-post on replay/restart); full lineage recommendation → PR → PO → GR → movement; no auto-receive, no invented policy, no bypass, no unrelated economic effects. Proven by 11/11 focused tests + command-spine/procurement/inventory 349/349 + the real-Electron journey (all assertions + RESULT, exit 0). No frozen change; no FG-S91 token; AI advisory-only. `certification/baseline.json` untouched. Release track PAUSED.
