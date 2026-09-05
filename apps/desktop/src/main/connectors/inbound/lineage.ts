@@ -106,6 +106,109 @@ export function summarizeInboundLineage(rows: readonly InboundLineageRow[]): Inb
   return [...byConnector.values()].sort((a, b) => b.lastReceivedAt - a.lastReceivedAt);
 }
 
+/**
+ * S123 — CONNECTOR INBOUND TREND (pure, deterministic, policy-free). A symmetric companion to the
+ * reliability trend, over the SAME already-tenant-scoped lineage rows (the EventBus ring). It splits the
+ * rows into an older ("previous") half and a newer ("recent") half by `receivedAt` and reports DESCRIPTIVE
+ * per-connector volume movement plus which connectors are NEW (recent-only) or QUIET (previous-only,
+ * i.e. no inbound deliveries in the recent half). It invents NO threshold, NO alert, NO SLO — QUIET means
+ * strictly "absent from the recent window", not "below some limit". Credential-free by construction.
+ */
+export type InboundTrendDirection = 'INCREASE' | 'DECREASE' | 'STABLE';
+export interface InboundConnectorTrendRow {
+  connectorId: string;
+  provider: string;
+  previous: number;
+  recent: number;
+  delta: number;
+  direction: InboundTrendDirection;
+}
+export interface InboundLineageTrend {
+  comparable: boolean;
+  window: { previous: number; recent: number };
+  totalVolume: { previous: number; recent: number; delta: number; direction: InboundTrendDirection };
+  /** connectors delivering in the recent window but not the previous one. */
+  newConnectors: string[];
+  /** connectors that delivered in the previous window but not the recent one. */
+  quietConnectors: string[];
+  /** per-connector volume movement, most-changed first, bounded. */
+  byConnector: InboundConnectorTrendRow[];
+}
+
+export const DEFAULT_INBOUND_TREND_WINDOW = 50;
+export const MAX_INBOUND_TREND_WINDOW = 200;
+export const MAX_INBOUND_TREND_ROWS = 10;
+
+function boundInboundWindow(v: unknown): number {
+  const n = Number(v);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) return DEFAULT_INBOUND_TREND_WINDOW;
+  return Math.min(n, MAX_INBOUND_TREND_WINDOW);
+}
+function inboundDir(delta: number): InboundTrendDirection {
+  if (!Number.isFinite(delta) || delta === 0) return 'STABLE';
+  return delta > 0 ? 'INCREASE' : 'DECREASE';
+}
+function countByConnector(rows: readonly InboundLineageRow[]): Map<string, { provider: string; n: number }> {
+  const m = new Map<string, { provider: string; n: number }>();
+  for (const r of rows) {
+    const cur = m.get(r.connectorId);
+    if (cur) cur.n += 1;
+    else m.set(r.connectorId, { provider: r.provider, n: 1 });
+  }
+  return m;
+}
+
+export function summarizeInboundLineageTrend(
+  rows: readonly InboundLineageRow[],
+  options: { window?: number } = {},
+): InboundLineageTrend {
+  const window = boundInboundWindow(options.window);
+  const empty: InboundLineageTrend = {
+    comparable: false,
+    window: { previous: 0, recent: 0 },
+    totalVolume: { previous: 0, recent: 0, delta: 0, direction: 'STABLE' },
+    newConnectors: [],
+    quietConnectors: [],
+    byConnector: [],
+  };
+  if (rows.length < 2) return empty;
+
+  // Stable chronological order by receivedAt (ties keep input order).
+  const ordered = rows
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => a.r.receivedAt - b.r.receivedAt || a.i - b.i)
+    .map((x) => x.r);
+  const considered = ordered.slice(-2 * window);
+  const mid = Math.floor(considered.length / 2);
+  const prevRows = considered.slice(0, mid);
+  const recRows = considered.slice(mid);
+  if (prevRows.length === 0 || recRows.length === 0) return empty;
+
+  const prev = countByConnector(prevRows);
+  const rec = countByConnector(recRows);
+  const newConnectors = [...rec.keys()].filter((c) => !prev.has(c)).sort();
+  const quietConnectors = [...prev.keys()].filter((c) => !rec.has(c)).sort();
+  const byConnector: InboundConnectorTrendRow[] = [...new Set([...prev.keys(), ...rec.keys()])]
+    .map((connectorId) => {
+      const p = prev.get(connectorId)?.n ?? 0;
+      const r = rec.get(connectorId)?.n ?? 0;
+      const provider = rec.get(connectorId)?.provider ?? prev.get(connectorId)?.provider ?? '';
+      return { connectorId, provider, previous: p, recent: r, delta: r - p, direction: inboundDir(r - p) };
+    })
+    .filter((row) => row.direction !== 'STABLE')
+    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta) || a.connectorId.localeCompare(b.connectorId))
+    .slice(0, MAX_INBOUND_TREND_ROWS);
+
+  return {
+    comparable: true,
+    window: { previous: prevRows.length, recent: recRows.length },
+    totalVolume: { previous: prevRows.length, recent: recRows.length, delta: recRows.length - prevRows.length, direction: inboundDir(recRows.length - prevRows.length) },
+    newConnectors,
+    quietConnectors,
+    byConnector,
+  };
+}
+
 /** The minimal read surface this projection needs — satisfied by the existing `EventBus`. */
 export interface InboundLineageSource {
   replay(filter?: { types?: readonly string[]; limit?: number }): PlatformEvent[];

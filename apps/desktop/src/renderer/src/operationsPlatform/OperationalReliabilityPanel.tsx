@@ -27,15 +27,34 @@ interface CommandTypeRow {
   everErrored: number;
 }
 interface ErrorRow { signature: string; count: number }
+type TrendDirection = 'INCREASE' | 'DECREASE' | 'STABLE';
+interface TrendMetric { previous: number; recent: number; delta: number; direction: TrendDirection }
+interface ReliabilityTrend {
+  comparable: boolean;
+  window: { previous: number; recent: number };
+  deliveryFailureRate: TrendMetric;
+  retryPressure: TrendMetric;
+  successRatio: TrendMetric;
+  totalFailures: TrendMetric;
+  posture: 'IMPROVING' | 'DEGRADING' | 'STABLE';
+  newSignatures: string[];
+  persistingSignatures: string[];
+  resolvedSignatures: string[];
+  byCommandType: Array<{ commandType: string; delta: number; trend: 'IMPROVING' | 'DEGRADING' | 'STABLE' }>;
+}
 interface ReliabilityData {
   totals: { commands: number; delivered: number; pending: number; processing: number; retryable: number; attempts: number; retried: number; everErrored: number };
   successRatio: number;
   deliveryFailureRatio: number;
   byCommandType: CommandTypeRow[];
   topErrors: ErrorRow[];
+  trend?: ReliabilityTrend;
 }
 
 const pct = (r: number): string => `${(Math.max(0, Math.min(1, Number(r) || 0)) * 100).toFixed(1)}%`;
+const arrow = (d: TrendDirection): string => (d === 'INCREASE' ? '▲' : d === 'DECREASE' ? '▼' : '→');
+// A rise in failures/retries is bad (red); a fall is good (green). STABLE is neutral.
+const badTone = (d: TrendDirection): 'green' | 'red' | 'gray' => (d === 'INCREASE' ? 'red' : d === 'DECREASE' ? 'green' : 'gray');
 
 export function OperationalReliabilityPanel(): JSX.Element {
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -68,6 +87,7 @@ export function OperationalReliabilityPanel(): JSX.Element {
   const totals = data?.totals;
   const byType = data?.byCommandType ?? [];
   const topErrors = data?.topErrors ?? [];
+  const trend = data?.trend;
   const failureTone = (t?: typeof totals): 'green' | 'orange' | 'red' =>
     !t ? 'green' : t.retryable > 0 ? 'red' : t.pending + t.processing > 0 ? 'orange' : 'green';
 
@@ -94,6 +114,43 @@ export function OperationalReliabilityPanel(): JSX.Element {
             <StatusBadge tone={totals.pending + totals.processing > 0 ? 'orange' : 'gray'} label={`In flight: ${totals.pending + totals.processing}`} />
             <StatusBadge tone={totals.retried > 0 ? 'orange' : 'gray'} label={`Retried: ${totals.retried}`} />
           </div>
+
+          {/* S123 — reliability TREND (older half vs recent half of the read window). Descriptive, policy-free. */}
+          {trend?.comparable && (
+            <div className="mb-3 surface-raised rounded-2xl px-4 py-3 shadow-card">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-2xs font-semibold uppercase tracking-wide text-faint">
+                  Trend · {trend.window.previous} → {trend.window.recent} commands
+                </span>
+                <StatusBadge
+                  tone={trend.posture === 'DEGRADING' ? 'red' : trend.posture === 'IMPROVING' ? 'green' : 'gray'}
+                  label={`Posture: ${trend.posture.toLowerCase()}`}
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <StatusBadge tone={badTone(trend.deliveryFailureRate.direction)} label={`Failure rate ${arrow(trend.deliveryFailureRate.direction)} ${pct(trend.deliveryFailureRate.recent)}`} />
+                <StatusBadge tone={badTone(trend.retryPressure.direction)} label={`Retry pressure ${arrow(trend.retryPressure.direction)} ${pct(trend.retryPressure.recent)}`} />
+                <StatusBadge tone={badTone(trend.totalFailures.direction)} label={`Failures ${arrow(trend.totalFailures.direction)} ${trend.totalFailures.recent}`} />
+              </div>
+              {(trend.newSignatures.length > 0 || trend.resolvedSignatures.length > 0) && (
+                <div className="mt-2 space-y-1 text-2xs">
+                  {trend.newSignatures.length > 0 && (
+                    <div className="truncate text-faint"><span className="font-medium text-ink">New errors:</span> {trend.newSignatures.join(' · ')}</div>
+                  )}
+                  {trend.resolvedSignatures.length > 0 && (
+                    <div className="truncate text-faint"><span className="font-medium text-ink">Resolved errors:</span> {trend.resolvedSignatures.join(' · ')}</div>
+                  )}
+                </div>
+              )}
+              {trend.byCommandType.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {trend.byCommandType.map((t) => (
+                    <StatusBadge key={t.commandType} tone={t.trend === 'DEGRADING' ? 'red' : t.trend === 'IMPROVING' ? 'green' : 'gray'} label={`${t.commandType}: ${t.trend.toLowerCase()}`} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {byType.length > 0 && (
             <div className="mb-3 surface-raised divide-y divide-[var(--hairline)] rounded-2xl px-4 shadow-card">

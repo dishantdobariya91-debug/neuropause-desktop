@@ -52,6 +52,35 @@ describe('OperationalReliabilityPanel', () => {
     await waitFor(() => expect(screen.getByText('No governed commands yet')).toBeTruthy());
   });
 
+  it('renders the reliability TREND section when comparable', async () => {
+    route(IpcChannel.PlatformCommandDispatch, () =>
+      resp({
+        totals: { commands: 4, delivered: 2, pending: 0, processing: 0, retryable: 2, attempts: 6, retried: 2, everErrored: 2 },
+        successRatio: 0.5, deliveryFailureRatio: 0.5,
+        byCommandType: [{ commandType: 'CreateSalesOrder', total: 4, delivered: 2, pending: 0, processing: 0, retryable: 2, attempts: 6, retried: 2, everErrored: 2 }],
+        topErrors: [{ signature: 'boom', count: 2 }],
+        trend: {
+          comparable: true,
+          window: { previous: 2, recent: 2 },
+          deliveryFailureRate: { previous: 0, recent: 1, delta: 1, direction: 'INCREASE' },
+          retryPressure: { previous: 0, recent: 1, delta: 1, direction: 'INCREASE' },
+          successRatio: { previous: 1, recent: 0, delta: -1, direction: 'DECREASE' },
+          totalFailures: { previous: 0, recent: 2, delta: 2, direction: 'INCREASE' },
+          posture: 'DEGRADING',
+          newSignatures: ['boom'],
+          persistingSignatures: [],
+          resolvedSignatures: [],
+          byCommandType: [{ commandType: 'CreateSalesOrder', delta: -1, trend: 'DEGRADING' }],
+        },
+      }),
+    );
+    render(<OperationalReliabilityPanel />);
+    await waitFor(() => expect(screen.getByText('Posture: degrading')).toBeTruthy());
+    expect(screen.getByText(/Trend · 2 → 2 commands/)).toBeTruthy();
+    expect(screen.getByText(/Failure rate/)).toBeTruthy();
+    expect(screen.getByText(/New errors:/)).toBeTruthy();
+  });
+
   it('never renders secret/token/payload material', async () => {
     route(IpcChannel.PlatformCommandDispatch, () =>
       resp({

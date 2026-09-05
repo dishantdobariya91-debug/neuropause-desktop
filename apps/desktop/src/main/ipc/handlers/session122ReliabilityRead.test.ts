@@ -153,4 +153,28 @@ describe('S122 · governed operational reliability read', () => {
       expect(blob).not.toContain(forbidden);
     }
   });
+
+  it('S123 — the governed read additionally returns a reliability TREND (same read, same tenant)', async () => {
+    // Two delivered then two retryable ⇒ recent half degrades vs previous half.
+    await seed('tenant-A', 'delivered');
+    await seed('tenant-A', 'delivered');
+    await seed('tenant-A', 'retryable', 'boom');
+    await seed('tenant-A', 'retryable', 'boom');
+    const r = await call({}, 'k9');
+    expect(r.ok).toBe(true);
+    const trend = r.data!.trend as { comparable: boolean; posture: string; deliveryFailureRate: { direction: string } };
+    expect(trend.comparable).toBe(true);
+    expect(trend.deliveryFailureRate.direction).toBe('INCREASE');
+    expect(trend.posture).toBe('DEGRADING');
+  });
+
+  it('S123 — trend is tenant-scoped: tenant B sees no comparison from tenant A rows', async () => {
+    await seed('tenant-A', 'delivered');
+    await seed('tenant-A', 'retryable', 'boom');
+    scope = { tenantId: 'tenant-B', workspaceId: 'ws-B' };
+    currentPrincipal = principal();
+    const r = await call({}, 'k10');
+    expect(r.ok).toBe(true);
+    expect((r.data!.trend as { comparable: boolean }).comparable).toBe(false);
+  });
 });

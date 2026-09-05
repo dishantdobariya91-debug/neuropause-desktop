@@ -7,8 +7,12 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EventBus } from '../../platform/eventBus';
-import { projectInboundLineage, readInboundLineage, summarizeInboundLineage } from './lineage';
+import { projectInboundLineage, readInboundLineage, summarizeInboundLineage, summarizeInboundLineageTrend, type InboundLineageRow } from './lineage';
 import type { PlatformEventInput } from '@neuropause/shared';
+
+function row(connectorId: string, provider: string, receivedAt: number): InboundLineageRow {
+  return { eventId: `${connectorId}-${receivedAt}`, connectorId, provider, verifiedSource: provider, receivedAt, tenantId: 'tenant-A', dedupeRef: null, credentialsPresent: false };
+}
 
 function inbound(connectorId: string, provider: string, over: Record<string, string | number | boolean | null> = {}): PlatformEventInput {
   return {
@@ -122,6 +126,40 @@ describe('S119 · inbound-event lineage (read-only, tenant-scoped)', () => {
     expect(summary.map((s) => s.connectorId)).toEqual(['github', 'slack']); // github last=3000 > slack last=2000
     const gh = summary.find((s) => s.connectorId === 'github')!;
     expect(gh).toMatchObject({ provider: 'github', events: 2, lastReceivedAt: 3000 });
+  });
+
+  it('S123 — inbound trend: <2 rows ⇒ not comparable (no fabricated trend)', () => {
+    expect(summarizeInboundLineageTrend([]).comparable).toBe(false);
+    expect(summarizeInboundLineageTrend([row('github', 'github', 1)]).comparable).toBe(false);
+  });
+
+  it('S123 — inbound trend classifies NEW, QUIET, and per-connector volume movement', () => {
+    // previous half (older): github×1, slack×1 ; recent half (newer): github×2, notion×1 (slack goes quiet, notion is new)
+    const rows = [
+      row('github', 'github', 100),
+      row('slack', 'slack', 200),
+      row('github', 'github', 300),
+      row('github', 'github', 400),
+      row('notion', 'notion', 500),
+      row('notion', 'notion', 600),
+    ];
+    // window 3, 6 rows → previous=[github,slack,github], recent=[github,notion,notion].
+    const tr = summarizeInboundLineageTrend(rows, { window: 3 });
+    expect(tr.comparable).toBe(true);
+    expect(tr.newConnectors).toContain('notion'); // recent-only
+    expect(tr.quietConnectors).toContain('slack'); // previous-only
+    const gh = tr.byConnector.find((c) => c.connectorId === 'github');
+    expect(gh?.direction).toBe('DECREASE'); // github 2 → 1
+  });
+
+  it('S123 — inbound trend is order-independent (sorts by receivedAt) and credential-free', () => {
+    const shuffled = [row('a', 'a', 400), row('a', 'a', 100), row('b', 'b', 300), row('a', 'a', 200)];
+    const tr = summarizeInboundLineageTrend(shuffled, { window: 2 });
+    expect(tr.comparable).toBe(true);
+    const blob = JSON.stringify(tr).toLowerCase();
+    for (const forbidden of ['secret', 'token', 'signature', 'authorization', 'payload', 'rawbody']) {
+      expect(blob).not.toContain(forbidden);
+    }
   });
 
   it('STRUCTURAL: lineage imports ONLY the shared type — no store/command-bus/executor/router', () => {

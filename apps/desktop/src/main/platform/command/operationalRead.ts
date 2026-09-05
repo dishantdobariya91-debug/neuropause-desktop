@@ -17,8 +17,8 @@
  */
 import type { CommittedCommand, DurableCommandJournal } from './durableCommandJournal';
 import type { DeliveredEventLog } from './deliveredEventLog';
-import { readInboundLineage, summarizeInboundLineage, type InboundLineageSource } from '../../connectors/inbound/lineage';
-import { summarizeReliability } from '../../operationsPlatform/operationalReliability';
+import { readInboundLineage, summarizeInboundLineage, summarizeInboundLineageTrend, type InboundLineageSource } from '../../connectors/inbound/lineage';
+import { summarizeReliability, summarizeReliabilityTrend } from '../../operationsPlatform/operationalReliability';
 
 /**
  * The operations this read surface answers — anything else is not a read (falls to the write path).
@@ -78,7 +78,10 @@ export function buildInboundLineage(
   // S121 — per-connector activity rollup (operational intelligence), derived purely from the same
   // tenant-scoped rows. Computed over ALL rows (not just the bounded page) so counts are accurate.
   const summary = summarizeInboundLineage(rows);
-  return { ok: true, data: { tenantId, limit, counts: { lineage: rows.length, connectors: summary.length }, lineage: bounded, summary } };
+  // S123 — connector inbound TREND over the SAME tenant-scoped lineage rows (two chronological windows).
+  // Additive field on the same governed read (generic `data` — no frozen contract change).
+  const trend = summarizeInboundLineageTrend(rows);
+  return { ok: true, data: { tenantId, limit, counts: { lineage: rows.length, connectors: summary.length }, lineage: bounded, summary, trend } };
 }
 
 /**
@@ -104,6 +107,10 @@ export function buildReliabilitySummary(
   }
   const records = journal.records(tenantId); // tenant-scoped by construction
   const summary = summarizeReliability(records, objective !== undefined ? { objective } : {});
+  // S123 — reliability TREND over the SAME tenant-scoped records (two chronological windows). Pure,
+  // deterministic, policy-free; additive `trend` field on the same governed read response (the response
+  // `data` is a generic Record — no frozen contract change, no new operation/channel).
+  const trend = summarizeReliabilityTrend(records);
   return {
     ok: true,
     data: {
@@ -114,6 +121,7 @@ export function buildReliabilitySummary(
       deliveryFailureRatio: summary.deliveryFailureRatio,
       byCommandType: summary.byCommandType.slice(0, limit),
       topErrors: summary.topErrors.slice(0, limit),
+      trend,
       ...(summary.budget ? { budget: summary.budget } : {}),
     },
   };

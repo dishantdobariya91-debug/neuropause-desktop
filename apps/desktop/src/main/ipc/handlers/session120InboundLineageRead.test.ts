@@ -137,4 +137,32 @@ describe('S120 · governed inbound-event lineage read', () => {
     expect(r.ok).toBe(true);
     expect(lineage(r)).toEqual([]);
   });
+
+  it('S123 — the governed read additionally returns a tenant-scoped inbound TREND', async () => {
+    busTenant = 'tenant-A';
+    // two older github deliveries, then two newer slack deliveries (slack is NEW in the recent half).
+    bus.publish(inbound('github', 'github'));
+    bus.publish(inbound('github', 'github'));
+    bus.publish(inbound('slack', 'slack'));
+    bus.publish(inbound('slack', 'slack'));
+    const r = await call({}, 'k8');
+    expect(r.ok).toBe(true);
+    const trend = r.data!.trend as { comparable: boolean; newConnectors: string[]; quietConnectors: string[] };
+    expect(trend.comparable).toBe(true);
+    // github delivered only in the older window; slack only in the newer window.
+    expect(trend.newConnectors).toContain('slack');
+    expect(trend.quietConnectors).toContain('github');
+  });
+
+  it('S123 — inbound trend is tenant-scoped (tenant B sees no comparison from A rows)', async () => {
+    busTenant = 'tenant-A';
+    bus.publish(inbound('github', 'github'));
+    bus.publish(inbound('github', 'github'));
+    scope = { tenantId: 'tenant-B', workspaceId: 'ws-B' };
+    currentPrincipal = principal();
+    busTenant = 'tenant-B';
+    const r = await call({}, 'k9');
+    expect(r.ok).toBe(true);
+    expect((r.data!.trend as { comparable: boolean }).comparable).toBe(false);
+  });
 });

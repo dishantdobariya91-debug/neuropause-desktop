@@ -41,6 +41,28 @@ describe('ConnectorLineagePanel', () => {
     expect(screen.getByText('credential-free')).toBeTruthy();
   });
 
+  it('renders the inbound TREND section (new / quiet connectors)', async () => {
+    route(IpcChannel.PlatformCommandDispatch, () =>
+      resp({
+        counts: { lineage: 4, connectors: 2 },
+        lineage: [{ eventId: 'e1', connectorId: 'slack', provider: 'slack', verifiedSource: 'slack', receivedAt: 1_700_000_000_000, tenantId: 'tenant-A', dedupeRef: null, credentialsPresent: false }],
+        summary: [{ connectorId: 'slack', provider: 'slack', events: 2, lastReceivedAt: 1_700_000_000_000 }],
+        trend: {
+          comparable: true,
+          window: { previous: 2, recent: 2 },
+          totalVolume: { previous: 2, recent: 2, delta: 0, direction: 'STABLE' },
+          newConnectors: ['slack'],
+          quietConnectors: ['github'],
+          byConnector: [{ connectorId: 'slack', provider: 'slack', previous: 0, recent: 2, delta: 2, direction: 'INCREASE' }],
+        },
+      }),
+    );
+    render(<ConnectorLineagePanel />);
+    await waitFor(() => expect(screen.getByText(/Inbound trend · 2 → 2 events/)).toBeTruthy());
+    expect(screen.getByText(/New connectors:/)).toBeTruthy();
+    expect(screen.getByText(/Quiet connectors:/)).toBeTruthy();
+  });
+
   it('shows an empty state when there is no verified inbound activity', async () => {
     route(IpcChannel.PlatformCommandDispatch, () => resp({}));
     render(<ConnectorLineagePanel />);

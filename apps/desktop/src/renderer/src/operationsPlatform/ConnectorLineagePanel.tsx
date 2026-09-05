@@ -26,7 +26,17 @@ interface LineageRow {
   credentialsPresent: boolean;
 }
 interface ConnectorSummary { connectorId: string; provider: string; events: number; lastReceivedAt: number }
-interface LineageData { counts: { lineage: number; connectors: number }; lineage: LineageRow[]; summary: ConnectorSummary[]; tenantId: string }
+type InboundDir = 'INCREASE' | 'DECREASE' | 'STABLE';
+interface InboundTrend {
+  comparable: boolean;
+  window: { previous: number; recent: number };
+  totalVolume: { previous: number; recent: number; delta: number; direction: InboundDir };
+  newConnectors: string[];
+  quietConnectors: string[];
+  byConnector: Array<{ connectorId: string; recent: number; previous: number; direction: InboundDir }>;
+}
+interface LineageData { counts: { lineage: number; connectors: number }; lineage: LineageRow[]; summary: ConnectorSummary[]; trend?: InboundTrend; tenantId: string }
+const inArrow = (d: InboundDir): string => (d === 'INCREASE' ? '▲' : d === 'DECREASE' ? '▼' : '→');
 
 const iso = (ms: number): string => (Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : '—');
 
@@ -60,6 +70,7 @@ export function ConnectorLineagePanel(): JSX.Element {
 
   const rows = data?.lineage ?? [];
   const summary = data?.summary ?? [];
+  const trend = data?.trend;
 
   return (
     <OpsPanel
@@ -82,6 +93,33 @@ export function ConnectorLineagePanel(): JSX.Element {
         <EmptyState title="No verified inbound webhooks yet" hint="Verified inbound connector events will appear here as read-only, credential-free evidence." />
       ) : (
         <>
+          {trend?.comparable && (trend.newConnectors.length > 0 || trend.quietConnectors.length > 0 || trend.byConnector.length > 0 || trend.totalVolume.direction !== 'STABLE') && (
+            <div className="mb-3 surface-raised rounded-2xl px-4 py-3 shadow-card">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-2xs font-semibold uppercase tracking-wide text-faint">
+                  Inbound trend · {trend.window.previous} → {trend.window.recent} events
+                </span>
+                <StatusBadge tone="gray" label={`Volume ${inArrow(trend.totalVolume.direction)} ${trend.totalVolume.recent}`} />
+              </div>
+              {(trend.newConnectors.length > 0 || trend.quietConnectors.length > 0) && (
+                <div className="space-y-1 text-2xs">
+                  {trend.newConnectors.length > 0 && (
+                    <div className="truncate text-faint"><span className="font-medium text-ink">New connectors:</span> {trend.newConnectors.join(' · ')}</div>
+                  )}
+                  {trend.quietConnectors.length > 0 && (
+                    <div className="truncate text-faint"><span className="font-medium text-ink">Quiet connectors:</span> {trend.quietConnectors.join(' · ')}</div>
+                  )}
+                </div>
+              )}
+              {trend.byConnector.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {trend.byConnector.map((c) => (
+                    <StatusBadge key={c.connectorId} tone={c.direction === 'INCREASE' ? 'green' : c.direction === 'DECREASE' ? 'orange' : 'gray'} label={`${c.connectorId} ${inArrow(c.direction)} ${c.recent}`} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {summary.length > 0 && (
             <div className="mb-3 surface-raised divide-y divide-[var(--hairline)] rounded-2xl px-4 shadow-card">
               {summary.map((s) => (

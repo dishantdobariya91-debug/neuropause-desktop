@@ -200,3 +200,169 @@ export function summarizeReliability(
 
 /** Re-export the harvested display banding default so a caller can surface it without a second constant. */
 export { AT_RISK_BURN };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// S123 — Reliability TREND intelligence (pure, deterministic, policy-free).
+//
+// A deterministic comparison of TWO chronological windows over the SAME committed-command evidence —
+// an older ("previous") half and a newer ("recent") half of the bounded read window, split by
+// `committedAt`. It surfaces DESCRIPTIVE deltas (retry pressure, delivery-failure rate, total failures,
+// per-command-type reliability, and error-signature appearance/persistence/resolution). It invents NO
+// SLO objective, NO acceptable failure percentage, and NO alert/severity/incident threshold: every
+// direction is the pure sign of a measured delta (§2/§3 of the S123 directive; DECISION-MEMO-S122).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Default number of records considered per side of the comparison; bounded by MAX_TREND_WINDOW. */
+export const DEFAULT_TREND_WINDOW = 25;
+export const MAX_TREND_WINDOW = 100;
+
+/** Descriptive direction of a delta — never a verdict, never a threshold. */
+export type TrendDirection = 'INCREASE' | 'DECREASE' | 'STABLE';
+/** Descriptive reliability movement for a command type. */
+export type CommandTypeTrend = 'IMPROVING' | 'DEGRADING' | 'STABLE';
+
+/** Pure sign → direction. Uses an exact zero test; no epsilon, no business threshold. */
+function direction(delta: number): TrendDirection {
+  if (!Number.isFinite(delta) || delta === 0) return 'STABLE';
+  return delta > 0 ? 'INCREASE' : 'DECREASE';
+}
+
+export interface TrendMetric {
+  previous: number;
+  recent: number;
+  delta: number; // recent − previous
+  direction: TrendDirection;
+}
+
+export interface CommandTypeTrendRow {
+  commandType: string;
+  previousSuccessRatio: number;
+  recentSuccessRatio: number;
+  delta: number; // recent − previous success ratio
+  trend: CommandTypeTrend;
+}
+
+export interface ReliabilityTrend {
+  /** whether a two-window comparison was possible (≥2 records). */
+  comparable: boolean;
+  /** records considered in each window. */
+  window: { previous: number; recent: number };
+  /** delivery-failure rate (retryable / commands) movement — the headline posture trend. */
+  deliveryFailureRate: TrendMetric;
+  /** retry pressure (retried / commands) movement. */
+  retryPressure: TrendMetric;
+  /** success ratio (delivered / commands) movement. */
+  successRatio: TrendMetric;
+  /** absolute count of currently-failing (RETRYABLE) deliveries. */
+  totalFailures: TrendMetric;
+  /** overall posture: DEGRADING if failure rate rose, IMPROVING if it fell, STABLE if unchanged. */
+  posture: 'IMPROVING' | 'DEGRADING' | 'STABLE';
+  /** error signatures appearing only in the recent window. */
+  newSignatures: string[];
+  /** error signatures present in BOTH windows. */
+  persistingSignatures: string[];
+  /** error signatures present only in the previous window (no longer recurring). */
+  resolvedSignatures: string[];
+  /** per-command-type reliability movement, most-changed (by |delta|) first, bounded. */
+  byCommandType: CommandTypeTrendRow[];
+}
+
+export interface ReliabilityTrendOptions {
+  /** records per side of the comparison; bounded to (0, MAX_TREND_WINDOW]. */
+  window?: number;
+}
+
+function boundTrendWindow(v: unknown): number {
+  const n = Number(v);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) return DEFAULT_TREND_WINDOW;
+  return Math.min(n, MAX_TREND_WINDOW);
+}
+
+const failureRate = (s: ReliabilitySummary): number => s.deliveryFailureRatio;
+const retryRate = (s: ReliabilitySummary): number => (s.totals.commands > 0 ? s.totals.retried / s.totals.commands : 0);
+const metric = (prev: number, rec: number): TrendMetric => ({ previous: prev, recent: rec, delta: rec - prev, direction: direction(rec - prev) });
+
+/**
+ * Compute the reliability trend between two chronological windows of the SAME tenant-scoped records.
+ * Pure and total. Records are ordered by `committedAt`; the last `2·window` are considered (bounded),
+ * split into an older PREVIOUS half and a newer RECENT half. With fewer than 2 records the comparison
+ * is not possible and `comparable:false` is returned (no fabricated trend).
+ */
+export function summarizeReliabilityTrend(
+  records: readonly CommittedCommand[],
+  options: ReliabilityTrendOptions = {},
+): ReliabilityTrend {
+  const window = boundTrendWindow(options.window);
+  const empty: ReliabilityTrend = {
+    comparable: false,
+    window: { previous: 0, recent: 0 },
+    deliveryFailureRate: metric(0, 0),
+    retryPressure: metric(0, 0),
+    successRatio: metric(0, 0),
+    totalFailures: metric(0, 0),
+    posture: 'STABLE',
+    newSignatures: [],
+    persistingSignatures: [],
+    resolvedSignatures: [],
+    byCommandType: [],
+  };
+  if (records.length < 2) return empty;
+
+  // Stable chronological order by committedAt (ties keep input order).
+  const ordered = records
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => (a.r.committedAt < b.r.committedAt ? -1 : a.r.committedAt > b.r.committedAt ? 1 : a.i - b.i))
+    .map((x) => x.r);
+
+  // Consider the last 2·window records, split in half (recent gets the extra on an odd count).
+  const considered = ordered.slice(-2 * window);
+  const mid = Math.floor(considered.length / 2);
+  const previousRecs = considered.slice(0, mid);
+  const recentRecs = considered.slice(mid);
+  if (previousRecs.length === 0 || recentRecs.length === 0) return empty;
+
+  const prev = summarizeReliability(previousRecs);
+  const rec = summarizeReliability(recentRecs);
+
+  const deliveryFailureRate = metric(failureRate(prev), failureRate(rec));
+  const retryPressure = metric(retryRate(prev), retryRate(rec));
+  const successRatio = metric(prev.successRatio, rec.successRatio);
+  const totalFailures = metric(prev.totals.retryable, rec.totals.retryable);
+  const posture: ReliabilityTrend['posture'] =
+    deliveryFailureRate.direction === 'INCREASE' ? 'DEGRADING' : deliveryFailureRate.direction === 'DECREASE' ? 'IMPROVING' : 'STABLE';
+
+  const prevSigs = new Set(prev.topErrors.map((e) => e.signature));
+  const recSigs = new Set(rec.topErrors.map((e) => e.signature));
+  const newSignatures = [...recSigs].filter((s) => !prevSigs.has(s)).sort();
+  const persistingSignatures = [...recSigs].filter((s) => prevSigs.has(s)).sort();
+  const resolvedSignatures = [...prevSigs].filter((s) => !recSigs.has(s)).sort();
+
+  const prevByType = new Map(prev.byCommandType.map((t) => [t.commandType, t]));
+  const recByType = new Map(rec.byCommandType.map((t) => [t.commandType, t]));
+  const typeRatio = (t?: CommandTypeReliability): number => (t && t.total > 0 ? t.delivered / t.total : 0);
+  const byCommandType: CommandTypeTrendRow[] = [...new Set([...prevByType.keys(), ...recByType.keys()])]
+    .map((commandType) => {
+      const p = typeRatio(prevByType.get(commandType));
+      const r = typeRatio(recByType.get(commandType));
+      const delta = r - p;
+      const trend: CommandTypeTrend = delta > 0 ? 'IMPROVING' : delta < 0 ? 'DEGRADING' : 'STABLE';
+      return { commandType, previousSuccessRatio: p, recentSuccessRatio: r, delta, trend };
+    })
+    .filter((row) => row.trend !== 'STABLE') // surface only the command types that actually changed
+    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta) || a.commandType.localeCompare(b.commandType))
+    .slice(0, MAX_ERROR_SIGNATURES);
+
+  return {
+    comparable: true,
+    window: { previous: previousRecs.length, recent: recentRecs.length },
+    deliveryFailureRate,
+    retryPressure,
+    successRatio,
+    totalFailures,
+    posture,
+    newSignatures,
+    persistingSignatures,
+    resolvedSignatures,
+    byCommandType,
+  };
+}
