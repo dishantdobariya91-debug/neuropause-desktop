@@ -162,6 +162,9 @@ import { initFounderAI } from './founder';
 import { initEngineeringAI, initFounderAIv2 } from './ai';
 // Phase 6 Stage 4 — the Workspace Assistant (composition over existing engines).
 import { initAssistant } from './assistant';
+// FG-S128-ASSISTANT-EVIDENCE-CONTEXT — additive: the non-frozen S128 grounding bridge (resolves the
+// active tenant server-side; returns bounded, credential-free, provenance-tagged AiContextItem[]).
+import { resolveEvidenceContext } from './platform/evidenceContextProvider';
 import { routingUsageStore } from './ai/routingUsageInstance';
 // Phase 6 Stage 5 — the Notification Inbox + preference surface (D-8): the
 // EXISTING delivery engine's notification-center channel made real.
@@ -2730,6 +2733,8 @@ export async function initRuntimeCore(deps: RuntimeCoreDeps): Promise<void> {
   let twinRef: EtwinPlatformSubsystem | null = null;
   const assistant = initAssistant({
     broadcast: deps.broadcast,
+    // FG-S128-ASSISTANT-EVIDENCE-CONTEXT — additive: governed AI evidence grounding source (S128/S129).
+    evidenceContext: (opts) => resolveEvidenceContext(opts),
     publish: publishPlatform,
     execute: (req) => executeEngine.execute(req),
     // Deterministic-first: the assistant answers lookup/aggregate questions
