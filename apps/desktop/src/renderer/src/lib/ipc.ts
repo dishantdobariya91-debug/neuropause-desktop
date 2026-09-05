@@ -694,7 +694,7 @@ export const ipc = {
      * explicit per-item provenance, on the SAME `platform:command.dispatch` READ branch
      * (`QueryEvidenceContext`). Tenant server-resolved; NO AI execution; credential-free; bounded.
      */
-    evidenceContext: (params: { query?: string; correlationId?: string; limit?: number; relevanceQuery?: string; includePosture?: boolean } = {}): Promise<PlatformCommandDispatchResponse> => {
+    evidenceContext: (params: { query?: string; correlationId?: string; limit?: number; relevanceQuery?: string; includePosture?: boolean; includeConnectorIntel?: boolean } = {}): Promise<PlatformCommandDispatchResponse> => {
       const settle = perfRecorder.ipcStart(String(IpcChannel.PlatformCommandDispatch));
       const promise = rawInvoke(IpcChannel.PlatformCommandDispatch, {
         operation: 'QueryEvidenceContext',

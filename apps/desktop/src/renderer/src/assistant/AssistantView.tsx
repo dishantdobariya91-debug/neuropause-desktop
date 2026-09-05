@@ -23,6 +23,7 @@ import { ProcessingBadge } from '@renderer/firstRun/ProcessingBadge';
 import { Button } from '@renderer/components/ui/Button';
 import { Spinner } from '@renderer/components/Spinner';
 import { approvalCard, explanationSummary, inspectorSections, STEP_STATE_META, stepsAwaitingApproval } from './assistantViewModel';
+import { AssistantGroundingBadge } from './AssistantGroundingBadge';
 
 const EXAMPLES = [
   "Summarize today's work",
@@ -395,6 +396,8 @@ function AssistantReply({
         <button type="button" onClick={() => setInspecting((v) => !v)} className="text-muted underline-offset-2 hover:text-ink hover:underline">
           {inspecting ? 'Hide inspector' : 'Inspect'}
         </button>
+        {/* S136 — read-only AI grounding transparency (S134/S135) beside the answer; lazy, no frozen change. */}
+        <AssistantGroundingBadge correlationId={env.correlationId} />
         <button type="button" onClick={() => onBranch(message.id)} className="text-muted underline-offset-2 hover:text-ink hover:underline">
           Branch from here
         </button>
