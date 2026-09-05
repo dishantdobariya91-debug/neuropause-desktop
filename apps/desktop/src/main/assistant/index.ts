@@ -42,6 +42,7 @@ import {
   AssistantPlanDecideRequest,
   IpcChannel,
 } from '@neuropause/shared';
+import type { AiContextItem } from '@neuropause/shared';
 import type { IpcBroadcaster } from '@neuropause/shared';
 import { createLogger } from '../logger';
 import type { SecureHandlerDef } from '../ipc/secureBridge';
@@ -80,6 +81,13 @@ const log = createLogger('workspace-assistant');
 
 export interface AssistantSubsystemDeps {
   broadcast: IpcBroadcaster;
+  /**
+   * S129 — optional read-only AI evidence-grounding source (S128). Returns governed, tenant-scoped,
+   * credential-free, provenance-tagged `AiContextItem[]` for the ACTIVE tenant (resolved server-side by
+   * the provider). Appended in `buildContext` exactly like the capability source. ABSENT ⇒ previous
+   * behavior unchanged. It grounds the Brain; it grants no execution.
+   */
+  evidenceContext?: (opts?: { query?: string; correlationId?: string; limit?: number }) => AiContextItem[];
   publish: (event: {
     type: string;
     category: string;
@@ -329,7 +337,11 @@ export function initAssistant(deps: AssistantSubsystemDeps): AssistantSubsystem 
       // Ground the AI in the user's REAL, current capabilities — a read-only description (no credential, no callable,
       // no authority). It makes the assistant capability-AWARE; it grants no execution.
       const capabilityContext = projectCapabilitiesForAI(capabilityDiscoveryService.catalog());
-      return [...builder.build(req), ...capabilityContext];
+      // S129 — append GOVERNED operational evidence grounding (S128), exactly like the capability source:
+      // read-only, tenant-scoped (resolved server-side by the provider), credential-free, provenance-tagged,
+      // bounded. ABSENT dep ⇒ identical to prior behavior. It grounds the Brain; it grants no execution.
+      const evidence = deps.evidenceContext ? deps.evidenceContext() : [];
+      return [...builder.build(req), ...capabilityContext, ...evidence];
     },
     runAi: (req) => aiEngine.run(req),
     recallMemories: (question, now, correlationId) =>

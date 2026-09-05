@@ -47,6 +47,8 @@ import { DeliveredEventLog } from '../../platform/command/deliveredEventLog';
 import { OPERATIONAL_READ_OPERATIONS, buildOperationalHistory, buildInboundLineage, buildReliabilitySummary, buildOperationalOverview, buildEvidenceSearch, buildEvidenceTrace, buildEvidenceContext } from '../../platform/command/operationalRead';
 import { buildDeliveryOperations } from '../../platform/command/deliveryOperations';
 import { platformBusRef } from '../../platform/platformBusRef';
+import { evidenceContextProvider } from '../../platform/evidenceContextProvider';
+import type { AiContextItem } from '@neuropause/shared';
 import { computePlatformHealth } from '../../platform/command/platformHealth';
 import { runtimeIdentity } from '../../runtimeIdentity';
 import { ElectronClientAdapter, type ClientRequest } from '../../platform/adapter/clientAdapter';
@@ -306,6 +308,17 @@ export function buildPlatformCommandHandlers(deps: PlatformCommandHandlerDeps): 
   // gap. Reuses the journal's own durable-store primitive — NOT a second outbox/event/audit engine.
   const deliveredLog = new DeliveredEventLog(join(app.getPath('userData'), 'platform-delivered-events.json'));
   const outboxConsumer: OutboxConsumer = (event) => deliveredLog.record(event);
+
+  // S129 — bind the S128 AI evidence-grounding provider over THIS journal + delivered sink + event ring.
+  // The closure resolves the tenant SERVER-SIDE from `activeTenantScope` (never a caller claim), so the
+  // live assistant Context Builder can ground on governed evidence via the non-frozen `resolveEvidenceContext`
+  // bridge. Read-only, bounded, credential-free; reuses the SAME buildEvidenceContext as the governed read.
+  evidenceContextProvider.current = (opts): AiContextItem[] => {
+    const tenantId = activeTenantScope()?.tenantId;
+    if (!tenantId) return [];
+    const result = buildEvidenceContext(journal, platformBusRef.current ?? undefined, deliveredLog, tenantId, opts);
+    return result.ok ? ((result.data.context as AiContextItem[]) ?? []) : [];
+  };
 
   // Drain any outbox entries still PENDING/RETRYABLE at shutdown (e.g. a delivery that failed and
   // was left RETRYABLE), reusing the established shutdown-flush registry. Best-effort by design.
