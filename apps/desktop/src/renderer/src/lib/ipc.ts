@@ -689,6 +689,22 @@ export const ipc = {
       return promise;
     },
     /**
+     * S128 — governed AI EVIDENCE GROUNDING read. Projects the SAME governed evidence (S125 search +
+     * optional S126/S127 correlation trace) into read-only `AiContextItem[]` grounding context with
+     * explicit per-item provenance, on the SAME `platform:command.dispatch` READ branch
+     * (`QueryEvidenceContext`). Tenant server-resolved; NO AI execution; credential-free; bounded.
+     */
+    evidenceContext: (params: { query?: string; correlationId?: string; limit?: number } = {}): Promise<PlatformCommandDispatchResponse> => {
+      const settle = perfRecorder.ipcStart(String(IpcChannel.PlatformCommandDispatch));
+      const promise = rawInvoke(IpcChannel.PlatformCommandDispatch, {
+        operation: 'QueryEvidenceContext',
+        payload: params,
+        idempotencyKey: `evctx-${Date.now().toString(36)}`,
+      }) as Promise<PlatformCommandDispatchResponse>;
+      promise.then(settle, settle);
+      return promise;
+    },
+    /**
      * GOVERNED SALES ORDER CREATE (ERP Session 43) — the FIRST renderer WRITE through the governed
      * command spine, closing the S42 exposure gap (the certified path was "correct but dark"). Reuses
      * the EXISTING `platform:command.dispatch` channel + the `CreateSalesOrder` domain command (S21):

@@ -21,6 +21,7 @@ import { readInboundLineage, summarizeInboundLineage, summarizeInboundLineageTre
 import { summarizeReliability, summarizeReliabilityTrend } from '../../operationsPlatform/operationalReliability';
 import { searchOperationalEvidence, type EvidenceKind } from '../../operationsPlatform/evidenceSearch';
 import { composeEvidenceTrace, type DeliveryPosture } from '../../operationsPlatform/evidenceTrace';
+import { projectEvidenceForAI } from '../../operationsPlatform/evidenceContext';
 import { deriveState } from './deliveryOperations';
 import { computePlatformHealth } from './platformHealth';
 
@@ -55,6 +56,11 @@ export const OPERATIONAL_READ_OPERATIONS: ReadonlySet<string> = new Set([
   // that genuinely carry it into ONE chronological trace. Exact-match only; inbound lineage (no
   // correlationId) is never joined. Pure, read-only, bounded, credential-free. Routed to `buildEvidenceTrace`.
   'QueryEvidenceTrace',
+  // S128 — AI EVIDENCE GROUNDING: a SIBLING read that projects the SAME governed evidence (search hits +
+  // optional correlation trace) into AiContextItem[] grounding context for the live Brain. Read-only,
+  // tenant-scoped, credential-free, bounded, explicit per-item provenance; NO AI execution. Routed to
+  // `buildEvidenceContext`. Reuses the frozen AiContextItem type (no contract change).
+  'QueryEvidenceContext',
 ]);
 
 export const MAX_LIMIT = 100;
@@ -210,6 +216,55 @@ export function buildEvidenceSearch(
   const lineage = lineageSource ? readInboundLineage(lineageSource, tenantId) : [];
   const result = searchOperationalEvidence(commands, lineage, query, { limit, ...(kind ? { kind } : {}) });
   return { ok: true, data: { tenantId, limit, query: result.query, counts: result.counts, bounded: result.bounded, hits: result.hits } };
+}
+
+/**
+ * S128 — the governed AI EVIDENCE GROUNDING read. `tenantId` MUST be the authoritative server-resolved
+ * tenant. Composes the SAME governed evidence (S125 search hits + optional S126/S127 correlation trace)
+ * into `AiContextItem[]` grounding context for the Brain — read-only, credential-free, bounded, explicit
+ * per-item provenance, NO AI execution. A null lineage source contributes no inbound evidence; a blank
+ * correlationId simply omits the trace leg (honest, never fabricated).
+ */
+export function buildEvidenceContext(
+  journal: DurableCommandJournal,
+  lineageSource: InboundLineageSource | undefined,
+  deliveredLog: DeliveredEventLog | undefined,
+  tenantId: string,
+  params: OperationalReadParams & { query?: unknown; correlationId?: unknown },
+): OperationalReadResult {
+  const limit = boundLimit(params.limit);
+  const query = typeof params.query === 'string' ? params.query : '';
+  const correlationId = typeof params.correlationId === 'string' && params.correlationId.trim() !== '' ? params.correlationId : '';
+  const commands = journal.records(tenantId); // tenant-scoped by construction
+  const lineage = lineageSource ? readInboundLineage(lineageSource, tenantId) : [];
+  const search = searchOperationalEvidence(commands, lineage, query, { limit });
+
+  let traceEntries: ReturnType<typeof composeEvidenceTrace>['entries'] = [];
+  if (correlationId !== '') {
+    const delivered = deliveredLog ? deliveredLog.delivered(tenantId) : [];
+    const deliveryByTxId = new Map<string, DeliveryPosture>();
+    for (const rec of commands) {
+      deliveryByTxId.set(rec.id, {
+        state: deriveState(rec.outbox?.status ?? 'PENDING'),
+        attempts: rec.outbox?.attempts ?? 0,
+        ...(rec.outbox?.deliveredAt ? { deliveredAt: rec.outbox.deliveredAt } : {}),
+      });
+    }
+    traceEntries = composeEvidenceTrace(commands, delivered, correlationId, { limit, deliveryByTxId }).entries;
+  }
+
+  const context = projectEvidenceForAI({ hits: search.hits, traceEntries, limit });
+  return {
+    ok: true,
+    data: {
+      tenantId,
+      query: search.query,
+      correlationId: correlationId === '' ? null : correlationId,
+      itemCount: context.length,
+      groundingOnly: true,
+      context,
+    },
+  };
 }
 
 /**
