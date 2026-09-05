@@ -20,6 +20,7 @@ import type { DeliveredEventLog } from './deliveredEventLog';
 import { readInboundLineage, summarizeInboundLineage, summarizeInboundLineageTrend, type InboundLineageSource } from '../../connectors/inbound/lineage';
 import { summarizeReliability, summarizeReliabilityTrend } from '../../operationsPlatform/operationalReliability';
 import { searchOperationalEvidence, type EvidenceKind } from '../../operationsPlatform/evidenceSearch';
+import { composeEvidenceTrace } from '../../operationsPlatform/evidenceTrace';
 import { computePlatformHealth } from './platformHealth';
 
 /**
@@ -48,6 +49,11 @@ export const OPERATIONAL_READ_OPERATIONS: ReadonlySet<string> = new Set([
   // inbound lineage, making fragmented canonical evidence discoverable. Pure, read-only, credential-free,
   // bounded. Routed to `buildEvidenceSearch`. No new search engine / vector store / index / channel.
   'QueryEvidenceSearch',
+  // S126 — governed EVIDENCE TRACE (correlation timeline): a SIBLING read on this SAME branch. Given an
+  // EXISTING correlationId, composes the SAME tenant-scoped committed-command + delivered-event records
+  // that genuinely carry it into ONE chronological trace. Exact-match only; inbound lineage (no
+  // correlationId) is never joined. Pure, read-only, bounded, credential-free. Routed to `buildEvidenceTrace`.
+  'QueryEvidenceTrace',
 ]);
 
 export const MAX_LIMIT = 100;
@@ -135,6 +141,39 @@ export function buildReliabilitySummary(
       topErrors: summary.topErrors.slice(0, limit),
       trend,
       ...(summary.budget ? { budget: summary.budget } : {}),
+    },
+  };
+}
+
+/**
+ * S126 — the governed EVIDENCE TRACE (correlation timeline). `tenantId` MUST be the authoritative
+ * server-resolved tenant. Reads only the EXISTING per-tenant committed-command + delivered-event records
+ * and composes the pure exact-match correlation trace. Read-only, bounded, credential-free. A blank or
+ * non-matching correlationId returns an honest no-identifier / not-found trace, never a fuzzy match.
+ */
+export function buildEvidenceTrace(
+  journal: DurableCommandJournal,
+  deliveredLog: DeliveredEventLog | undefined,
+  tenantId: string,
+  params: OperationalReadParams & { correlationId?: unknown },
+): OperationalReadResult {
+  const limit = boundLimit(params.limit);
+  const correlationId = typeof params.correlationId === 'string' ? params.correlationId : '';
+  const commands = journal.records(tenantId); // tenant-scoped by construction
+  const delivered = deliveredLog ? deliveredLog.delivered(tenantId) : [];
+  const trace = composeEvidenceTrace(commands, delivered, correlationId, { limit });
+  return {
+    ok: true,
+    data: {
+      tenantId,
+      limit,
+      correlationId: trace.correlationId,
+      found: trace.found,
+      counts: trace.counts,
+      entries: trace.entries,
+      bounded: trace.bounded,
+      inboundCorrelatable: trace.inboundCorrelatable,
+      ...(trace.note ? { note: trace.note } : {}),
     },
   };
 }

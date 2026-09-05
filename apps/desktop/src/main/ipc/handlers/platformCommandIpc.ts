@@ -44,7 +44,7 @@ import { resolveGovernedActor } from '../../auth/governedActor';
 import { DurableCommandJournal } from '../../platform/command/durableCommandJournal';
 import { dispatchOutbox, type OutboxConsumer } from '../../platform/command/outboxDispatcher';
 import { DeliveredEventLog } from '../../platform/command/deliveredEventLog';
-import { OPERATIONAL_READ_OPERATIONS, buildOperationalHistory, buildInboundLineage, buildReliabilitySummary, buildOperationalOverview, buildEvidenceSearch } from '../../platform/command/operationalRead';
+import { OPERATIONAL_READ_OPERATIONS, buildOperationalHistory, buildInboundLineage, buildReliabilitySummary, buildOperationalOverview, buildEvidenceSearch, buildEvidenceTrace } from '../../platform/command/operationalRead';
 import { buildDeliveryOperations } from '../../platform/command/deliveryOperations';
 import { platformBusRef } from '../../platform/platformBusRef';
 import { computePlatformHealth } from '../../platform/command/platformHealth';
@@ -219,7 +219,11 @@ export function buildPlatformCommandDispatchDef(deps: PlatformCommandDispatchDep
                   // S125 — deterministic lexical/filter search over the SAME per-tenant committed-command
                   // history + verified inbound lineage. Pure, read-only, bounded, credential-free.
                   ? buildEvidenceSearch(deps.journal, platformBusRef.current ?? undefined, principal.tenantId, params)
-                  : buildOperationalHistory(deps.journal, deps.deliveredLog, principal.tenantId, params);
+                  : request.operation === 'QueryEvidenceTrace'
+                    // S126 — exact-match correlation trace over the SAME per-tenant committed-command +
+                    // delivered-event records. Pure, read-only, bounded, credential-free.
+                    ? buildEvidenceTrace(deps.journal, deps.deliveredLog, principal.tenantId, params)
+                    : buildOperationalHistory(deps.journal, deps.deliveredLog, principal.tenantId, params);
         if (!read.ok) return fail('VALIDATION_ERROR', read.error);
         return { ok: true, data: read.data, requestId, correlationId, operation: request.operation };
       }

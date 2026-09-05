@@ -28,6 +28,9 @@ interface EvidenceHit {
 }
 interface EvidenceData { query: string; counts: { command: number; inbound: number; total: number }; bounded: boolean; hits: EvidenceHit[] }
 
+interface TraceEntry { source: string; id: string; at: string; type: string; status: string | null; aggregateId: string | null; correlationId: string }
+interface TraceData { correlationId: string; found: boolean; counts: { command: number; delivered: number; total: number }; entries: TraceEntry[]; bounded: boolean; note?: string }
+
 const iso = (ms: number): string => (Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : '—');
 
 export function EvidenceSearchPanel(): JSX.Element {
@@ -36,6 +39,24 @@ export function EvidenceSearchPanel(): JSX.Element {
   const [data, setData] = useState<EvidenceData | null>(null);
   const [message, setMessage] = useState<string>('');
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [trace, setTrace] = useState<TraceData | null>(null);
+  const [traceState, setTraceState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+
+  const runTrace = useCallback(async (correlationId: string) => {
+    setTraceState('loading');
+    setTrace(null);
+    try {
+      const resp = await ipc.platform.evidenceTrace({ correlationId, limit: 100 });
+      if (!resp.ok) {
+        setTraceState('error');
+        return;
+      }
+      setTrace((resp.data ?? null) as unknown as TraceData | null);
+      setTraceState('ready');
+    } catch {
+      setTraceState('error');
+    }
+  }, []);
 
   const run = useCallback(async (q: string) => {
     setState('loading');
@@ -105,9 +126,60 @@ export function EvidenceSearchPanel(): JSX.Element {
                   </div>
                 </div>
                 {h.status ? <StatusBadge tone="gray" label={h.status} /> : null}
+                {h.correlationId ? (
+                  <button
+                    type="button"
+                    className="rounded-lg border border-[var(--hairline)] px-2 py-0.5 text-2xs text-muted hover:text-ink"
+                    onClick={() => void runTrace(h.correlationId as string)}
+                  >
+                    Trace
+                  </button>
+                ) : (
+                  <span className="text-2xs text-faint" title="This evidence carries no correlation identifier">no corr</span>
+                )}
               </div>
             ))}
           </div>
+
+          {/* S126 — inline Evidence Trace (correlation timeline) for the selected hit. */}
+          {traceState !== 'idle' && (
+            <div className="mt-3 surface-raised rounded-2xl px-4 py-3 shadow-card">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-2xs font-semibold uppercase tracking-wide text-faint">
+                  Evidence trace{trace?.correlationId ? ` · corr ${trace.correlationId}` : ''}
+                </span>
+                <button type="button" className="text-2xs text-muted hover:text-ink" onClick={() => { setTraceState('idle'); setTrace(null); }}>
+                  Close
+                </button>
+              </div>
+              {traceState === 'loading' ? (
+                <LoadingBlock label="Composing trace…" />
+              ) : traceState === 'error' ? (
+                <EmptyState title="Trace unavailable" hint="The correlation trace could not be loaded." />
+              ) : !trace || !trace.found ? (
+                <EmptyState title="No correlated evidence" hint={trace?.note ?? 'No command or delivered-event evidence carries this correlation identifier.'} />
+              ) : (
+                <>
+                  <div className="mb-2 flex flex-wrap gap-2">
+                    <StatusBadge tone="purple" label={`Commands: ${trace.counts.command}`} />
+                    <StatusBadge tone="green" label={`Delivered: ${trace.counts.delivered}`} />
+                    {trace.bounded ? <StatusBadge tone="orange" label="Trace truncated" /> : null}
+                  </div>
+                  <ol className="relative space-y-2 border-l border-[var(--hairline)] pl-4">
+                    {trace.entries.map((e) => (
+                      <li key={`${e.source}:${e.id}`} className="text-2xs">
+                        <div className="font-medium text-ink">{e.type} <span className="text-faint">· {e.source}</span></div>
+                        <div className="truncate text-faint">
+                          {`${e.at || '—'}${e.status ? ` · ${e.status}` : ''}${e.aggregateId ? ` · ${e.aggregateId}` : ''} · id ${e.id}`}
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                  <div className="mt-2 text-2xs text-faint">Inbound connector webhooks carry no correlation id and are not part of a correlation trace.</div>
+                </>
+              )}
+            </div>
+          )}
         </>
       )}
     </OpsPanel>

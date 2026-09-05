@@ -672,6 +672,23 @@ export const ipc = {
       return promise;
     },
     /**
+     * S126 — governed EVIDENCE TRACE (correlation timeline) read. Given an EXISTING `correlationId` (from
+     * an evidence-search hit), composes the SAME tenant-scoped committed-command + delivered-event records
+     * that genuinely carry it into ONE chronological trace, on the SAME governed `platform:command.dispatch`
+     * READ branch (`QueryEvidenceTrace`). Tenant is server-resolved; the renderer supplies NO tenant.
+     * Exact-match only; a blank/non-matching id returns an honest not-found trace. No new channel/store.
+     */
+    evidenceTrace: (params: { correlationId: string; limit?: number }): Promise<PlatformCommandDispatchResponse> => {
+      const settle = perfRecorder.ipcStart(String(IpcChannel.PlatformCommandDispatch));
+      const promise = rawInvoke(IpcChannel.PlatformCommandDispatch, {
+        operation: 'QueryEvidenceTrace',
+        payload: params,
+        idempotencyKey: `evtrace-${Date.now().toString(36)}`,
+      }) as Promise<PlatformCommandDispatchResponse>;
+      promise.then(settle, settle);
+      return promise;
+    },
+    /**
      * GOVERNED SALES ORDER CREATE (ERP Session 43) — the FIRST renderer WRITE through the governed
      * command spine, closing the S42 exposure gap (the certified path was "correct but dark"). Reuses
      * the EXISTING `platform:command.dispatch` channel + the `CreateSalesOrder` domain command (S21):
