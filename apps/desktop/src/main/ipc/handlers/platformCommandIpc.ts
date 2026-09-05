@@ -44,7 +44,7 @@ import { resolveGovernedActor } from '../../auth/governedActor';
 import { DurableCommandJournal } from '../../platform/command/durableCommandJournal';
 import { dispatchOutbox, type OutboxConsumer } from '../../platform/command/outboxDispatcher';
 import { DeliveredEventLog } from '../../platform/command/deliveredEventLog';
-import { OPERATIONAL_READ_OPERATIONS, buildOperationalHistory, buildInboundLineage, buildReliabilitySummary } from '../../platform/command/operationalRead';
+import { OPERATIONAL_READ_OPERATIONS, buildOperationalHistory, buildInboundLineage, buildReliabilitySummary, buildOperationalOverview } from '../../platform/command/operationalRead';
 import { buildDeliveryOperations } from '../../platform/command/deliveryOperations';
 import { platformBusRef } from '../../platform/platformBusRef';
 import { computePlatformHealth } from '../../platform/command/platformHealth';
@@ -189,6 +189,18 @@ export function buildPlatformCommandDispatchDef(deps: PlatformCommandDispatchDep
           return fail('TENANT_SCOPE_VIOLATION', 'Tenant claim does not match the resolved principal.');
         }
         const params = (request.payload ?? {}) as Record<string, unknown>;
+        // S124 — the cross-surface OPERATIONAL OVERVIEW composes the sibling read builders and needs the
+        // async health probe, so it is handled here (before the synchronous ternary) under the SAME
+        // governed posture already enforced above (server principal, RBAC, tenant validation).
+        if (request.operation === 'QueryOperationalOverview') {
+          const overview = await buildOperationalOverview(
+            { journal: deps.journal, ...(deps.deliveredLog ? { deliveredLog: deps.deliveredLog } : {}), runtimeReady: deps.runtimeReady ?? ((): boolean => true), ...(platformBusRef.current ? { lineageSource: platformBusRef.current } : {}) },
+            principal.tenantId,
+            params,
+          );
+          if (!overview.ok) return fail('VALIDATION_ERROR', overview.error);
+          return { ok: true, data: overview.data, requestId, correlationId, operation: request.operation };
+        }
         // Route to the matching read projection. `QueryDeliveryOperations` (ERP Session 35) is the
         // delivery-failure drill-down — a SIBLING read on this SAME governed branch (same principal,
         // RBAC, tenant validation, bounded/sanitized projection), never a new channel or command.

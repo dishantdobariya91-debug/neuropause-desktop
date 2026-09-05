@@ -19,6 +19,7 @@ import type { CommittedCommand, DurableCommandJournal } from './durableCommandJo
 import type { DeliveredEventLog } from './deliveredEventLog';
 import { readInboundLineage, summarizeInboundLineage, summarizeInboundLineageTrend, type InboundLineageSource } from '../../connectors/inbound/lineage';
 import { summarizeReliability, summarizeReliabilityTrend } from '../../operationsPlatform/operationalReliability';
+import { computePlatformHealth } from './platformHealth';
 
 /**
  * The operations this read surface answers — anything else is not a read (falls to the write path).
@@ -36,6 +37,11 @@ export const OPERATIONAL_READ_OPERATIONS: ReadonlySet<string> = new Set([
   // deterministic projection over the SAME durable command journal (delivery-reliability posture +
   // recurring error signatures). Routed to `buildReliabilitySummary`. No new channel/command/bus/store.
   'QueryReliabilitySummary',
+  // S124 — cross-surface operational OVERVIEW: a SIBLING read on this SAME governed branch that COMPOSES
+  // the existing operational-read builders (health + delivery + reliability + reliability-trend + inbound
+  // + inbound-trend) into ONE compact operator posture. A pure composition layer — it opens no store,
+  // adds no source of truth, and mutates nothing. Routed to `buildOperationalOverview`.
+  'QueryOperationalOverview',
 ]);
 
 export const MAX_LIMIT = 100;
@@ -123,6 +129,114 @@ export function buildReliabilitySummary(
       topErrors: summary.topErrors.slice(0, limit),
       trend,
       ...(summary.budget ? { budget: summary.budget } : {}),
+    },
+  };
+}
+
+/**
+ * S124 — the governed cross-surface OPERATIONAL OVERVIEW. A pure COMPOSITION over the existing
+ * operational-read builders: it re-derives the same tenant-scoped postures those reads already return
+ * and folds them into one compact operator summary. `tenantId` MUST be the authoritative server-resolved
+ * tenant. It opens no store, adds no source of truth, executes nothing, and mutates nothing. Each section
+ * is computed defensively: a single failing sub-read degrades ONLY its own section to `available:false`
+ * rather than failing the whole overview (an honest gap, never a fabricated posture).
+ *
+ * Audit-integrity is intentionally NOT composed here — it lives on its own governed channel/store
+ * (`security:auditIntegrity.status`, S115); the overview UI reads that existing governed surface directly
+ * for its tile, so each source stays authoritative and no cross-subsystem coupling is introduced.
+ */
+export interface OperationalOverviewDeps {
+  journal: DurableCommandJournal;
+  deliveredLog?: DeliveredEventLog;
+  runtimeReady: () => boolean;
+  lineageSource?: InboundLineageSource;
+}
+
+function section<T>(compute: () => T): { available: true; value: T } | { available: false } {
+  try {
+    return { available: true, value: compute() };
+  } catch {
+    return { available: false };
+  }
+}
+
+export async function buildOperationalOverview(
+  deps: OperationalOverviewDeps,
+  tenantId: string,
+  params: OperationalReadParams,
+): Promise<OperationalReadResult> {
+  const limit = boundLimit(params.limit);
+
+  // HEALTH — real runtime + persistence probe (async, already defensive).
+  let health: Record<string, unknown> | null = null;
+  try {
+    const h = await computePlatformHealth({
+      journal: deps.journal,
+      ...(deps.deliveredLog ? { deliveredLog: deps.deliveredLog } : {}),
+      runtimeReady: deps.runtimeReady,
+    });
+    health = { status: h.status, live: h.live, ready: h.ready, checkedAt: h.checkedAt, components: h.components };
+  } catch {
+    health = null;
+  }
+
+  // RELIABILITY posture + trend — composed from the SAME journal records (one read).
+  const reliabilitySection = section(() => {
+    const records = deps.journal.records(tenantId);
+    const s = summarizeReliability(records);
+    const trend = summarizeReliabilityTrend(records);
+    return {
+      totals: s.totals,
+      successRatio: s.successRatio,
+      deliveryFailureRatio: s.deliveryFailureRatio,
+      topError: s.topErrors[0] ?? null,
+      trend: {
+        comparable: trend.comparable,
+        posture: trend.posture,
+        deliveryFailureRateDirection: trend.deliveryFailureRate.direction,
+        retryPressureDirection: trend.retryPressure.direction,
+        newSignatures: trend.newSignatures.length,
+      },
+    };
+  });
+
+  // DELIVERY posture — the outbox status snapshot from the SAME journal (via the sibling builder's shape).
+  const deliverySection = section(() => {
+    const s = summarizeReliability(deps.journal.records(tenantId));
+    return {
+      pending: s.totals.pending,
+      inFlight: s.totals.processing,
+      retryable: s.totals.retryable,
+      delivered: s.totals.delivered,
+    };
+  });
+
+  // CONNECTOR INBOUND posture + trend — composed from the existing lineage read (bounded).
+  const inbound = deps.lineageSource ? buildInboundLineage(deps.lineageSource, tenantId, { limit }) : null;
+  const inboundData = inbound && inbound.ok ? (inbound.data as Record<string, unknown>) : null;
+  const inboundTrend = inboundData?.trend as { comparable?: boolean; totalVolume?: { direction?: string }; newConnectors?: string[]; quietConnectors?: string[] } | undefined;
+  const connectorInbound = inboundData
+    ? {
+        available: true as const,
+        counts: inboundData.counts,
+        trend: {
+          comparable: Boolean(inboundTrend?.comparable),
+          volumeDirection: inboundTrend?.totalVolume?.direction ?? 'STABLE',
+          newConnectors: inboundTrend?.newConnectors?.length ?? 0,
+          quietConnectors: inboundTrend?.quietConnectors?.length ?? 0,
+        },
+      }
+    : { available: false as const };
+
+  return {
+    ok: true,
+    data: {
+      tenantId,
+      checkedAt: new Date().toISOString(),
+      health: health ?? { available: false },
+      reliability: reliabilitySection,
+      delivery: deliverySection,
+      connectorInbound,
     },
   };
 }
