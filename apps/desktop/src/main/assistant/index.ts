@@ -87,7 +87,7 @@ export interface AssistantSubsystemDeps {
    * the provider). Appended in `buildContext` exactly like the capability source. ABSENT ⇒ previous
    * behavior unchanged. It grounds the Brain; it grants no execution.
    */
-  evidenceContext?: (opts?: { query?: string; correlationId?: string; limit?: number; relevanceQuery?: string }) => AiContextItem[];
+  evidenceContext?: (opts?: { query?: string; correlationId?: string; limit?: number; relevanceQuery?: string; includePosture?: boolean }) => AiContextItem[];
   publish: (event: {
     type: string;
     category: string;
@@ -344,7 +344,10 @@ export function initAssistant(deps: AssistantSubsystemDeps): AssistantSubsystem 
       // lexical relevance (non-excluding: it never empties the grounding — degrades to recency when the
       // question has no lexical overlap). It is a relevance signal only, NOT a tenant selector (the
       // provider resolves the tenant server-side and the evidence is already tenant-scoped).
-      const evidence = deps.evidenceContext ? deps.evidenceContext({ relevanceQuery: req.query }) : [];
+      // S133 — also request the aggregate operational-posture prefix so the Brain can answer health/reliability
+      // questions the bounded evidence rows cannot express (repo-wide ratios + top error). Read-only, bounded,
+      // credential-free, definitional (no invented SLO/verdict); tenant resolved server-side by the provider.
+      const evidence = deps.evidenceContext ? deps.evidenceContext({ relevanceQuery: req.query, includePosture: true }) : [];
       return [...builder.build(req), ...capabilityContext, ...evidence];
     },
     runAi: (req) => aiEngine.run(req),

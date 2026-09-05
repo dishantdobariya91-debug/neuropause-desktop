@@ -21,7 +21,7 @@ import { readInboundLineage, summarizeInboundLineage, summarizeInboundLineageTre
 import { summarizeReliability, summarizeReliabilityTrend } from '../../operationsPlatform/operationalReliability';
 import { searchOperationalEvidence, MAX_EVIDENCE_RESULTS, type EvidenceKind } from '../../operationsPlatform/evidenceSearch';
 import { composeEvidenceTrace, type DeliveryPosture } from '../../operationsPlatform/evidenceTrace';
-import { projectEvidenceForAI } from '../../operationsPlatform/evidenceContext';
+import { projectEvidenceForAI, projectPostureForAI } from '../../operationsPlatform/evidenceContext';
 import { deriveState } from './deliveryOperations';
 import { computePlatformHealth } from './platformHealth';
 
@@ -230,9 +230,14 @@ export function buildEvidenceContext(
   lineageSource: InboundLineageSource | undefined,
   deliveredLog: DeliveredEventLog | undefined,
   tenantId: string,
-  params: OperationalReadParams & { query?: unknown; correlationId?: unknown; relevanceQuery?: unknown },
+  params: OperationalReadParams & { query?: unknown; correlationId?: unknown; relevanceQuery?: unknown; includePosture?: unknown },
 ): OperationalReadResult {
   const limit = boundLimit(params.limit);
+  // S133 — the live-assistant grounding leg opts in to an AGGREGATE posture summary. The bounded evidence
+  // ROWS cannot express repo-wide ratios ("is delivery healthy?"), so a compact, credential-free posture
+  // item (reliability totals + ratios + top error signature) is prepended, derived from the SAME journal
+  // via `summarizeReliability`. Opt-in ⇒ the existing QueryEvidenceContext read is unchanged when absent.
+  const includePosture = params.includePosture === true;
   const query = typeof params.query === 'string' ? params.query : '';
   const correlationId = typeof params.correlationId === 'string' && params.correlationId.trim() !== '' ? params.correlationId : '';
   // S130 — the live-assistant grounding leg passes the user's QUESTION as `relevanceQuery`. Unlike the
@@ -263,12 +268,18 @@ export function buildEvidenceContext(
     traceEntries = composeEvidenceTrace(commands, delivered, correlationId, { limit, deliveryByTxId }).entries;
   }
 
-  const context = projectEvidenceForAI({
+  // S133 — the aggregate posture prefix (≤2 items), computed from the SAME tenant-scoped commands. It
+  // takes a small slice of the grounding budget so the total stays bounded (evidence rows get the rest).
+  const postureItems = includePosture ? projectPostureForAI(summarizeReliability(commands)) : [];
+  const rowLimit = Math.max(1, limit - postureItems.length);
+
+  const rows = projectEvidenceForAI({
     hits: search.hits,
     traceEntries,
-    limit,
+    limit: rowLimit,
     ...(rankOnly ? { query: relevanceQuery } : {}),
   });
+  const context = [...postureItems, ...rows];
   return {
     ok: true,
     data: {
@@ -278,6 +289,8 @@ export function buildEvidenceContext(
       // S130 — expose whether relevance ranking shaped this grounding (honest surface; empty when the
       // read ran in plain browse/search mode).
       relevanceRanked: rankOnly,
+      // S133 — expose whether the aggregate posture prefix was included (honest surface).
+      postureIncluded: postureItems.length > 0,
       itemCount: context.length,
       groundingOnly: true,
       context,

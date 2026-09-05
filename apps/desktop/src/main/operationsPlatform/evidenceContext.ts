@@ -25,6 +25,7 @@
 import type { AiContextItem } from '@neuropause/shared';
 import type { EvidenceHit } from './evidenceSearch';
 import type { TraceEntry } from './evidenceTrace';
+import type { ReliabilitySummary } from './operationalReliability';
 
 /** Coarse context channel (frozen enum). Exact provenance is carried per-item in `evidence[]`. */
 const EVIDENCE_SOURCE = 'timeline' as const;
@@ -49,6 +50,42 @@ function hitToItem(h: EvidenceHit): AiContextItem {
     `at ${iso(h.timestamp)}`,
   ].filter(Boolean);
   return { source: EVIDENCE_SOURCE, text: `Operational evidence — ${bits.join(' · ')}.`, evidence: [{ kind: h.source, id: h.id }] };
+}
+
+/**
+ * S133 — project the tenant's operational RELIABILITY POSTURE into grounding item(s). The bounded evidence
+ * ROWS (hits/trace) cannot convey an AGGREGATE — a question like "is delivery healthy?" needs the ratios
+ * over ALL commands, which 20 sampled rows cannot express. This adds a compact, credential-free posture
+ * summary (totals + success/delivery-failure ratios + the single top recurring error signature) computed
+ * by the SAME `summarizeReliability` the operator reads via QueryReliabilitySummary. Pure; ≤2 items.
+ *
+ * DISCIPLINE: DEFINITIONAL facts only (counts/ratios are arithmetic, not a verdict — no SLO/health label
+ * invented); CREDENTIAL-FREE (reliability signatures are already trimmed, and command types carry no
+ * secrets); provenance tagged `operational-posture`. Empty journal ⇒ empty (honest: nothing to ground on).
+ */
+export function projectPostureForAI(summary: ReliabilitySummary): AiContextItem[] {
+  const t = summary.totals;
+  if (t.commands === 0) return []; // no governed commands ⇒ no posture to ground on (never fabricated)
+  const pct = (r: number): string => `${Math.round(r * 1000) / 10}%`;
+  const out: AiContextItem[] = [
+    {
+      source: EVIDENCE_SOURCE,
+      text:
+        `Operational posture — ${t.commands} governed command(s): ${t.delivered} delivered (${pct(summary.successRatio)}), ` +
+        `${t.retryable} retrying (${pct(summary.deliveryFailureRatio)} delivery-failure), ${t.pending} pending, ${t.processing} in-flight; ` +
+        `${t.retried} took more than one attempt.`,
+      evidence: [{ kind: 'operational-posture', id: 'reliability' }],
+    },
+  ];
+  const top = summary.topErrors[0];
+  if (top) {
+    out.push({
+      source: EVIDENCE_SOURCE,
+      text: `Operational posture — top recurring delivery error (${top.count}×): ${top.signature}`,
+      evidence: [{ kind: 'operational-posture', id: 'top-error' }],
+    });
+  }
+  return out;
 }
 
 /** One correlation-trace entry → a grounding item (factual line + exact provenance incl. delivery posture). */

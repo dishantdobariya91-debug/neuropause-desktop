@@ -6,7 +6,8 @@
 import { describe, it, expect } from 'vitest';
 import type { EvidenceHit } from './evidenceSearch';
 import type { TraceEntry } from './evidenceTrace';
-import { projectEvidenceForAI, relevanceScore, MAX_GROUNDING_ITEMS, DEFAULT_GROUNDING_ITEMS, boundGroundingLimit } from './evidenceContext';
+import { projectEvidenceForAI, projectPostureForAI, relevanceScore, MAX_GROUNDING_ITEMS, DEFAULT_GROUNDING_ITEMS, boundGroundingLimit } from './evidenceContext';
+import type { ReliabilitySummary } from './operationalReliability';
 
 function hit(over: Partial<EvidenceHit> = {}): EvidenceHit {
   return { kind: 'command', id: 'tx_1', source: 'command-journal', type: 'CreateSalesOrder', timestamp: 1_700_000_000_000, summary: 'CreateSalesOrder · DELIVERED', status: 'DELIVERED', correlationId: 'corr-1', connectorId: null, score: 1, ...over } as EvidenceHit;
@@ -123,5 +124,48 @@ describe('S130 · relevance-ranked grounding (pure, non-excluding)', () => {
     expect(projectEvidenceForAI({ hits, query: huge })).toHaveLength(1); // still present (non-excluding)
     // injection-shaped text is treated as plain lexical tokens, never executed/interpreted
     expect(() => projectEvidenceForAI({ hits, query: '"; DROP TABLE; ${process.exit()}' })).not.toThrow();
+  });
+});
+
+function summary(over: Partial<ReliabilitySummary> = {}): ReliabilitySummary {
+  return {
+    totals: { commands: 10, delivered: 8, pending: 0, processing: 0, retryable: 2, attempts: 14, retried: 3, everErrored: 2 },
+    successRatio: 0.8,
+    deliveryFailureRatio: 0.2,
+    byCommandType: [],
+    topErrors: [{ signature: 'Graph 429 rate limited', count: 5 }],
+    ...over,
+  } as ReliabilitySummary;
+}
+
+describe('S133 · AI operational-posture grounding (pure, definitional)', () => {
+  it('projects an aggregate posture item + a top-error item (≤2), tagged operational-posture', () => {
+    const items = projectPostureForAI(summary());
+    expect(items).toHaveLength(2);
+    expect(items[0].evidence).toEqual([{ kind: 'operational-posture', id: 'reliability' }]);
+    expect(items[0].text).toContain('10 governed command(s)');
+    expect(items[0].text).toContain('8 delivered (80%)');
+    expect(items[0].text).toContain('2 retrying (20% delivery-failure)');
+    expect(items[1].evidence).toEqual([{ kind: 'operational-posture', id: 'top-error' }]);
+    expect(items[1].text).toContain('Graph 429 rate limited');
+    expect(items[1].text).toContain('(5×)');
+  });
+
+  it('omits the top-error item when there are no recurring errors', () => {
+    const items = projectPostureForAI(summary({ topErrors: [] }));
+    expect(items).toHaveLength(1);
+    expect(items[0].evidence?.[0]?.id).toBe('reliability');
+  });
+
+  it('empty journal ⇒ NO posture (honest: nothing to ground on, never fabricated)', () => {
+    const empty = summary({ totals: { commands: 0, delivered: 0, pending: 0, processing: 0, retryable: 0, attempts: 0, retried: 0, everErrored: 0 }, successRatio: 0, deliveryFailureRatio: 0, topErrors: [] });
+    expect(projectPostureForAI(empty)).toEqual([]);
+  });
+
+  it('posture text is definitional (ratios/counts) — carries NO credential/secret/payload material', () => {
+    const blob = JSON.stringify(projectPostureForAI(summary())).toLowerCase();
+    for (const forbidden of ['secret', 'token', 'password', 'authorization', 'payload', 'bearer']) {
+      expect(blob).not.toContain(forbidden);
+    }
   });
 });
