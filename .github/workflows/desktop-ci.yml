@@ -30,10 +30,13 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/desktop-ci.yml'
+      # S132 — any workflow change runs the desktop suite so the workflow least-privilege assertion gates it.
+      - '.github/workflows/**'
   pull_request:
     paths:
       - 'apps/desktop/**'
       - 'packages/shared/**'
+      - '.github/workflows/**'
 
 # S131 — least privilege. This job only reads the repo and runs tests; it needs no write scopes on the
 # GITHUB_TOKEN. Declared explicitly so a future step cannot silently inherit broad default permissions.
@@ -56,6 +59,9 @@ jobs:
         run: npx eslint apps/desktop --max-warnings 0
       - name: Test (desktop — node suite + mounted components)
         run: npm run test -w @neuropause/desktop
+      # S132 — GitHub Actions least-privilege assertion (fail-closed on missing/over-broad permissions).
+      - name: Workflow least-privilege assertion
+        run: npm run verify:workflow-perms
       - name: Build (desktop)
         run: npm run build -w @neuropause/desktop
       # S131 — supply-chain trust. SBOM + verification are deterministic (offline fold over the lockfile);

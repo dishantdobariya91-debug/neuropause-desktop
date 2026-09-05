@@ -34,7 +34,8 @@
     "lint:release": "eslint apps/desktop apps/backend packages/shared packages/companion-protocol packages/cloud-core packages/shared-cloud --max-warnings 0",
     "bootstrap:env": "node scripts/bootstrap-env.cjs",
     "docs:validate": "node scripts/docs-validate.cjs",
-    "docs:build": "node scripts/docs-build.cjs"
+    "docs:build": "node scripts/docs-build.cjs",
+    "verify:workflow-perms": "node scripts/verify-workflow-permissions.cjs"
   },
   "devDependencies": {
     "@types/node": "^20.12.7",
