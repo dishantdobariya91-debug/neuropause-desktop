@@ -39,7 +39,7 @@ import { OUTBOX_STATUSES, boundLimit, trimError } from './operationalRead';
  */
 export type DeliveryState = 'PENDING' | 'IN_FLIGHT' | 'RETRYING' | 'DELIVERED';
 
-function deriveState(status: string): DeliveryState {
+export function deriveState(status: string): DeliveryState {
   switch (status) {
     case 'DELIVERED':
       return 'DELIVERED';

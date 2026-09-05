@@ -22,11 +22,33 @@
  */
 import type { CommittedCommand } from '../platform/command/durableCommandJournal';
 import type { DeliveredEventRecord } from '../platform/command/deliveredEventLog';
+import type { DeliveryState } from '../platform/command/deliveryOperations';
 
 export const MAX_TRACE_ENTRIES = 200;
 export const DEFAULT_TRACE_ENTRIES = 100;
 
 export type TraceSource = 'command-journal' | 'delivered-events';
+
+/**
+ * S127 — the delivery posture for one trace entry, joined by EXACT txId to the canonical S35 delivery
+ * evidence (a pure derivation over the SAME journal record's outbox — see `deliveryOperations.deriveState`).
+ *   - `state` is the canonical `DeliveryState` (PENDING / IN_FLIGHT / RETRYING / DELIVERED) when the entry
+ *     has a canonical txId that resolves to a delivery row;
+ *   - `NOT_LINKED` when the entry carries no txId to join on (delivered-sink entries hold an event id, not
+ *     a txId), or its txId is absent from the delivery evidence — an honest "not linked", never invented;
+ *   - `UNAVAILABLE` when no delivery evidence was supplied to the composition at all.
+ * No new delivery status is invented; there is deliberately no "FAILED" (RETRYING is the canonical
+ * failure-in-progress state). Read-only, credential-free.
+ */
+export type TraceDeliveryState = DeliveryState | 'NOT_LINKED' | 'UNAVAILABLE';
+export interface TraceDeliveryPosture {
+  state: TraceDeliveryState;
+  linked: boolean;
+  attempts: number | null;
+  deliveredAt: string | null;
+}
+/** The exact-txId delivery lookup the composer joins against (built by the caller from S35 evidence). */
+export type DeliveryPosture = { state: DeliveryState; attempts: number; deliveredAt?: string };
 
 export interface TraceEntry {
   source: TraceSource;
@@ -44,6 +66,8 @@ export interface TraceEntry {
   aggregateId: string | null;
   /** the correlation id this entry genuinely carries (always === the queried id here). */
   correlationId: string;
+  /** S127 — delivery/outbox posture joined by exact txId (NOT_LINKED / UNAVAILABLE when no canonical join). */
+  delivery: TraceDeliveryPosture;
 }
 
 export interface EvidenceTrace {
@@ -65,7 +89,17 @@ export interface EvidenceTrace {
 
 export interface EvidenceTraceOptions {
   limit?: number;
+  /**
+   * S127 — exact-txId → delivery-posture lookup, built by the caller from the canonical S35 delivery
+   * evidence (`journal.records(tenantId)` via `deriveState`). When omitted, every entry's delivery is
+   * `UNAVAILABLE` (honest: no delivery evidence was provided). Only command-journal entries have a txId
+   * to join on; delivered-sink entries are always `NOT_LINKED`.
+   */
+  deliveryByTxId?: ReadonlyMap<string, DeliveryPosture>;
 }
+
+const NOT_LINKED: TraceDeliveryPosture = { state: 'NOT_LINKED', linked: false, attempts: null, deliveredAt: null };
+const UNAVAILABLE: TraceDeliveryPosture = { state: 'UNAVAILABLE', linked: false, attempts: null, deliveredAt: null };
 
 export function boundTraceLimit(v: unknown): number {
   const n = Number(v);
@@ -90,6 +124,14 @@ export function composeEvidenceTrace(
   options: EvidenceTraceOptions = {},
 ): EvidenceTrace {
   const limit = boundTraceLimit(options.limit);
+  const deliveryMap = options.deliveryByTxId;
+  // A command-journal entry joins by EXACT txId (entry.id === rec.id === the S35 delivery row's txId).
+  const deliveryForTx = (txId: string): TraceDeliveryPosture => {
+    if (!deliveryMap) return UNAVAILABLE; // no delivery evidence supplied
+    const p = deliveryMap.get(txId);
+    if (!p) return NOT_LINKED; // exact-match miss — never a fuzzy/temporal join
+    return { state: p.state, linked: true, attempts: Number.isFinite(p.attempts) ? p.attempts : null, deliveredAt: p.deliveredAt ?? null };
+  };
   const id = typeof correlationId === 'string' ? correlationId.trim() : '';
   if (id === '') {
     return {
@@ -116,6 +158,7 @@ export function composeEvidenceTrace(
       status: rec.outbox?.status ?? null,
       aggregateId: rec.event?.aggregateId ?? null,
       correlationId: id,
+      delivery: deliveryForTx(rec.id), // exact txId → canonical delivery posture
     });
   }
 
@@ -130,6 +173,8 @@ export function composeEvidenceTrace(
       status: 'delivered',
       aggregateId: d.aggregateId ?? null,
       correlationId: id,
+      // delivered-sink entries hold an event id, not a txId — no canonical delivery-posture join exists.
+      delivery: NOT_LINKED,
     });
   }
 

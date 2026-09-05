@@ -34,8 +34,8 @@ const traceResp = (over: Record<string, unknown> = {}) => ({
   data: {
     correlationId: 'corr-1', found: true, counts: { command: 1, delivered: 1, total: 2 }, bounded: false, inboundCorrelatable: false,
     entries: [
-      { source: 'command-journal', id: 'tx_1', at: '2026-09-05T00:00:01.000Z', type: 'CreateSalesOrder', status: 'DELIVERED', aggregateId: 'so-1', correlationId: 'corr-1' },
-      { source: 'delivered-events', id: 'ev_1', at: '2026-09-05T00:00:05.000Z', type: 'sales.order.created', status: 'delivered', aggregateId: 'so-1', correlationId: 'corr-1' },
+      { source: 'command-journal', id: 'tx_1', at: '2026-09-05T00:00:01.000Z', type: 'CreateSalesOrder', status: 'DELIVERED', aggregateId: 'so-1', correlationId: 'corr-1', delivery: { state: 'DELIVERED', linked: true, attempts: 1, deliveredAt: '2026-09-05T00:00:05.000Z' } },
+      { source: 'delivered-events', id: 'ev_1', at: '2026-09-05T00:00:05.000Z', type: 'sales.order.created', status: 'delivered', aggregateId: 'so-1', correlationId: 'corr-1', delivery: { state: 'NOT_LINKED', linked: false, attempts: null, deliveredAt: null } },
     ],
     tenantId: 'tenant-A', ...over,
   },

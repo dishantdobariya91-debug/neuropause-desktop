@@ -170,4 +170,14 @@ describe('S126 · governed evidence trace read', () => {
     expect(r.data!.bounded).toBe(true);
     expect((r.data!.counts as { command: number }).command).toBe(6);
   });
+
+  it('S127 — a command trace entry carries canonical delivery posture joined by its txId', async () => {
+    await seedCommand('tenant-A', 'corr-DEL');
+    const r = await call({ correlationId: 'corr-DEL' }, 'k11');
+    expect(r.ok).toBe(true);
+    const cmdEntry = (entries(r) as unknown as Array<{ source: string; delivery: { state: string; linked: boolean } }>)
+      .find((e) => e.source === 'command-journal')!;
+    // a just-committed command has never been drained → canonical PENDING, linked by exact txId.
+    expect(cmdEntry.delivery).toMatchObject({ state: 'PENDING', linked: true });
+  });
 });

@@ -101,3 +101,43 @@ describe('S126 · evidence trace (pure)', () => {
     expect(boundTraceLimit(99999)).toBe(MAX_TRACE_ENTRIES);
   });
 });
+
+describe('S127 · evidence trace + delivery posture (exact txId join)', () => {
+  it('a command entry joins its delivery posture by EXACT txId', () => {
+    const cmds = [cmd({ id: 'tx1', correlationId: 'corr-1', status: 'RETRYABLE' })];
+    const deliveryByTxId = new Map([['tx1', { state: 'RETRYING' as const, attempts: 3, deliveredAt: undefined }]]);
+    const t = composeEvidenceTrace(cmds, [], 'corr-1', { deliveryByTxId });
+    const e = t.entries.find((x) => x.id === 'tx1')!;
+    expect(e.delivery).toMatchObject({ state: 'RETRYING', linked: true, attempts: 3 });
+  });
+
+  it('a command txId absent from the delivery map is honestly NOT_LINKED (no fuzzy join)', () => {
+    const cmds = [cmd({ id: 'tx1', correlationId: 'corr-1' })];
+    const deliveryByTxId = new Map([['tx-OTHER', { state: 'DELIVERED' as const, attempts: 1 }]]);
+    const t = composeEvidenceTrace(cmds, [], 'corr-1', { deliveryByTxId });
+    expect(t.entries.find((x) => x.id === 'tx1')!.delivery).toMatchObject({ state: 'NOT_LINKED', linked: false });
+  });
+
+  it('a delivered-sink entry (event id, not a txId) is always NOT_LINKED', () => {
+    const dels = [del({ id: 'ev1', correlationId: 'corr-1' })];
+    // even if the delivery map happened to contain the event id, delivered entries never join.
+    const deliveryByTxId = new Map([['ev1', { state: 'DELIVERED' as const, attempts: 1 }]]);
+    const t = composeEvidenceTrace([], dels, 'corr-1', { deliveryByTxId });
+    expect(t.entries.find((x) => x.id === 'ev1')!.delivery).toMatchObject({ state: 'NOT_LINKED', linked: false });
+  });
+
+  it('no delivery evidence supplied ⇒ command entries are UNAVAILABLE (not fabricated)', () => {
+    const cmds = [cmd({ id: 'tx1', correlationId: 'corr-1' })];
+    const t = composeEvidenceTrace(cmds, [], 'corr-1'); // no deliveryByTxId
+    expect(t.entries.find((x) => x.id === 'tx1')!.delivery).toMatchObject({ state: 'UNAVAILABLE', linked: false });
+  });
+
+  it('delivery posture adds no credential/secret material to the trace', () => {
+    const cmds = [cmd({ id: 'tx1', correlationId: 'corr-1', lastError: 'BEARER sk-LEAK' })];
+    const deliveryByTxId = new Map([['tx1', { state: 'DELIVERED' as const, attempts: 1, deliveredAt: '2026-09-05T00:00:05.000Z' }]]);
+    const blob = JSON.stringify(composeEvidenceTrace(cmds, [], 'corr-1', { deliveryByTxId })).toLowerCase();
+    for (const forbidden of ['secret', 'bearer', 'sk-leak', 'password', 'token', 'rawbody']) {
+      expect(blob).not.toContain(forbidden);
+    }
+  });
+});

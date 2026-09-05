@@ -20,7 +20,8 @@ import type { DeliveredEventLog } from './deliveredEventLog';
 import { readInboundLineage, summarizeInboundLineage, summarizeInboundLineageTrend, type InboundLineageSource } from '../../connectors/inbound/lineage';
 import { summarizeReliability, summarizeReliabilityTrend } from '../../operationsPlatform/operationalReliability';
 import { searchOperationalEvidence, type EvidenceKind } from '../../operationsPlatform/evidenceSearch';
-import { composeEvidenceTrace } from '../../operationsPlatform/evidenceTrace';
+import { composeEvidenceTrace, type DeliveryPosture } from '../../operationsPlatform/evidenceTrace';
+import { deriveState } from './deliveryOperations';
 import { computePlatformHealth } from './platformHealth';
 
 /**
@@ -161,7 +162,17 @@ export function buildEvidenceTrace(
   const correlationId = typeof params.correlationId === 'string' ? params.correlationId : '';
   const commands = journal.records(tenantId); // tenant-scoped by construction
   const delivered = deliveredLog ? deliveredLog.delivered(tenantId) : [];
-  const trace = composeEvidenceTrace(commands, delivered, correlationId, { limit });
+  // S127 — canonical delivery posture keyed by EXACT txId (rec.id), derived from the SAME journal
+  // records the S35 delivery drill-down uses (`deriveState` — single source of truth, no new store).
+  const deliveryByTxId = new Map<string, DeliveryPosture>();
+  for (const rec of commands) {
+    deliveryByTxId.set(rec.id, {
+      state: deriveState(rec.outbox?.status ?? 'PENDING'),
+      attempts: rec.outbox?.attempts ?? 0,
+      ...(rec.outbox?.deliveredAt ? { deliveredAt: rec.outbox.deliveredAt } : {}),
+    });
+  }
+  const trace = composeEvidenceTrace(commands, delivered, correlationId, { limit, deliveryByTxId });
   return {
     ok: true,
     data: {

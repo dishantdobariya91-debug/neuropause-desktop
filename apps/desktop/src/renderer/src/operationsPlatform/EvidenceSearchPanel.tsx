@@ -28,7 +28,11 @@ interface EvidenceHit {
 }
 interface EvidenceData { query: string; counts: { command: number; inbound: number; total: number }; bounded: boolean; hits: EvidenceHit[] }
 
-interface TraceEntry { source: string; id: string; at: string; type: string; status: string | null; aggregateId: string | null; correlationId: string }
+interface TraceDelivery { state: string; linked: boolean; attempts: number | null; deliveredAt: string | null }
+interface TraceEntry { source: string; id: string; at: string; type: string; status: string | null; aggregateId: string | null; correlationId: string; delivery?: TraceDelivery }
+// S127 — compact delivery badge tone; canonical states only (no invented FAILED/severity).
+const deliveryTone = (s?: string): 'green' | 'orange' | 'gray' =>
+  s === 'DELIVERED' ? 'green' : s === 'RETRYING' ? 'orange' : s === 'PENDING' || s === 'IN_FLIGHT' ? 'gray' : 'gray';
 interface TraceData { correlationId: string; found: boolean; counts: { command: number; delivered: number; total: number }; entries: TraceEntry[]; bounded: boolean; note?: string }
 
 const iso = (ms: number): string => (Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : '—');
@@ -168,7 +172,12 @@ export function EvidenceSearchPanel(): JSX.Element {
                   <ol className="relative space-y-2 border-l border-[var(--hairline)] pl-4">
                     {trace.entries.map((e) => (
                       <li key={`${e.source}:${e.id}`} className="text-2xs">
-                        <div className="font-medium text-ink">{e.type} <span className="text-faint">· {e.source}</span></div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-ink">{e.type} <span className="text-faint">· {e.source}</span></span>
+                          {e.delivery ? (
+                            <StatusBadge tone={deliveryTone(e.delivery.state)} label={`delivery: ${e.delivery.state.toLowerCase()}${e.delivery.linked && e.delivery.attempts && e.delivery.attempts > 1 ? ` (${e.delivery.attempts}×)` : ''}`} />
+                          ) : null}
+                        </div>
                         <div className="truncate text-faint">
                           {`${e.at || '—'}${e.status ? ` · ${e.status}` : ''}${e.aggregateId ? ` · ${e.aggregateId}` : ''} · id ${e.id}`}
                         </div>
