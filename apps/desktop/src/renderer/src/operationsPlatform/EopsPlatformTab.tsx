@@ -23,6 +23,7 @@ import { Icon } from '@renderer/components/ui/Icon';
 import { OpsPanel, StatusBadge } from '@renderer/operations/primitives';
 import { OperationalOverviewPanel } from './OperationalOverviewPanel';
 import { EvidenceSearchPanel } from './EvidenceSearchPanel';
+import { GroundingTransparencyPanel } from './GroundingTransparencyPanel';
 import { OperationalHistoryPanel } from './OperationalHistoryPanel';
 import { DeliveryOperationsPanel } from './DeliveryOperationsPanel';
 import { AuditIntegrityPanel } from './AuditIntegrityPanel';
@@ -341,6 +342,7 @@ export function EopsPlatformTab(): JSX.Element {
       <OperationalReliabilityPanel />
       <ConnectorLineagePanel />
       <EvidenceSearchPanel />
+      <GroundingTransparencyPanel />
       <AuditIntegrityPanel />
       <OperationalHistoryPanel />
     </>
