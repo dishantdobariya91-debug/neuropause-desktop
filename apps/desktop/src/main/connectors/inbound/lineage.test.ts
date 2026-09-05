@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EventBus } from '../../platform/eventBus';
-import { projectInboundLineage, readInboundLineage, summarizeInboundLineage, summarizeInboundLineageTrend, type InboundLineageRow } from './lineage';
+import { projectInboundLineage, readInboundLineage, summarizeInboundLineage, summarizeInboundLineageTrend, composeConnectorInboundIntelligence, type InboundLineageRow } from './lineage';
 import type { PlatformEventInput } from '@neuropause/shared';
 
 function row(connectorId: string, provider: string, receivedAt: number): InboundLineageRow {
@@ -158,6 +158,48 @@ describe('S119 · inbound-event lineage (read-only, tenant-scoped)', () => {
     expect(tr.comparable).toBe(true);
     const blob = JSON.stringify(tr).toLowerCase();
     for (const forbidden of ['secret', 'token', 'signature', 'authorization', 'payload', 'rawbody']) {
+      expect(blob).not.toContain(forbidden);
+    }
+  });
+
+  it('S135 — connector intelligence merges count/latest/trend/state per connector (descriptive only)', () => {
+    // github increases (prev 1 → recent 2), slack is QUIET (prev-only), stripe is NEW (recent-only).
+    const rows = [
+      row('github', 'github', 100), row('slack', 'slack', 150), // previous half
+      row('github', 'github', 300), row('github', 'github', 400), row('stripe', 'stripe', 350), // recent half
+    ];
+    const intel = composeConnectorInboundIntelligence(rows, { window: 3 });
+    const by = new Map(intel.map((c) => [c.connectorId, c]));
+    expect(by.get('github')!.events).toBe(3);
+    expect(by.get('github')!.state).toBe('ACTIVE'); // present in both windows
+    expect(by.get('github')!.trendDirection).toBe('INCREASE');
+    expect(by.get('github')!.lastReceivedAt).toBe(400);
+    expect(by.get('stripe')!.state).toBe('NEW');
+    expect(by.get('slack')!.state).toBe('QUIET');
+    // honest descriptive fields on every connector
+    for (const c of intel) {
+      expect(c.correlatable).toBe(false); // inbound carries no correlationId (S126)
+      expect(c.dedupeRefStatus).toBe('absent'); // S114 carries no dedupe reference
+      expect(c.verifiedSource).toBe(c.provider);
+      expect(c.sampleEventIds.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('S135 — intelligence: not comparable (fewer than two rows) ⇒ ACTIVE + null trend, never fabricated', () => {
+    expect(composeConnectorInboundIntelligence([])).toEqual([]);
+    const one = composeConnectorInboundIntelligence([row('github', 'github', 1)]);
+    expect(one).toHaveLength(1);
+    expect(one[0].state).toBe('ACTIVE');
+    expect(one[0].trendDirection).toBeNull();
+    expect(one[0].events).toBe(1);
+  });
+
+  it('S135 — intelligence is credential-free + bounded provenance', () => {
+    const rows = Array.from({ length: 20 }, (_, i) => row('github', 'github', i + 1));
+    const intel = composeConnectorInboundIntelligence(rows);
+    expect(intel[0].sampleEventIds.length).toBeLessThanOrEqual(5); // MAX_CONNECTOR_INTEL_EVENT_IDS
+    const blob = JSON.stringify(intel).toLowerCase();
+    for (const forbidden of ['secret', 'token', 'signature', 'authorization', 'payload', 'rawbody', 'credential']) {
       expect(blob).not.toContain(forbidden);
     }
   });

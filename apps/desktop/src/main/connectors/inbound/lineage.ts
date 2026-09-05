@@ -209,6 +209,78 @@ export function summarizeInboundLineageTrend(
   };
 }
 
+/**
+ * S135 — CONNECTOR INBOUND INTELLIGENCE (pure, deterministic, policy-free). A per-connector MERGE of the
+ * existing S121 rollup (`summarizeInboundLineage`) and the S123 trend (`summarizeInboundLineageTrend`) over
+ * the SAME already-tenant-scoped lineage rows, so an operator/AI sees ONE intelligible record per connector
+ * instead of cross-referencing two arrays. It adds NO data source, NO store, NO authority.
+ *
+ * DESCRIPTIVE ONLY — every field is either a count/timestamp fact or a state already DEFINED by S123's
+ * trend semantics. It invents NO health/SLO/reliability/anomaly/correctness score and NO threshold:
+ *   • `state` is `NEW` (S123 recent-only) / `QUIET` (S123 previous-only) / `ACTIVE` (present, neither) —
+ *     ACTIVE means "has verified deliveries and is not new/quiet", NOT a health judgement.
+ *   • `trendDirection` is the S123 per-connector volume direction, or `null` when the trend is not
+ *     comparable (fewer than two rows) — never fabricated.
+ *   • `correlatable` is `false` by construction — inbound webhook lineage carries no correlationId (S126),
+ *     so an inbound event is never part of a correlation trace. Honest, not a defect.
+ *   • `dedupeRefStatus` is `'absent'` — the S114 event carries no dedupe/idempotency reference; this
+ *     preserves the existing `dedupeRef: null` semantics without inventing one.
+ *   • `sampleEventIds` is bounded provenance (event ids only — never a payload/secret).
+ * CREDENTIAL-FREE by construction (the row shape has no secret field).
+ */
+export type ConnectorInboundState = 'NEW' | 'QUIET' | 'ACTIVE';
+export interface ConnectorInboundIntelligence {
+  connectorId: string;
+  provider: string;
+  verifiedSource: string;
+  events: number;
+  lastReceivedAt: number;
+  trendDirection: InboundTrendDirection | null;
+  state: ConnectorInboundState;
+  /** inbound webhook lineage carries no correlationId (S126) ⇒ never part of a correlation trace. */
+  correlatable: false;
+  /** S114 carries no dedupe/idempotency reference ⇒ ABSENT (preserves the `dedupeRef: null` semantics). */
+  dedupeRefStatus: 'absent';
+  /** bounded provenance — verified inbound event ids only (never payload/secret). */
+  sampleEventIds: string[];
+}
+
+/** Max provenance event ids surfaced per connector — bounded, never "return everything". */
+export const MAX_CONNECTOR_INTEL_EVENT_IDS = 5;
+
+export function composeConnectorInboundIntelligence(
+  rows: readonly InboundLineageRow[],
+  options: { window?: number } = {},
+): ConnectorInboundIntelligence[] {
+  const summary = summarizeInboundLineage(rows); // per-connector events + lastReceivedAt, most-recent first
+  const trend = summarizeInboundLineageTrend(rows, options);
+  const dirByConnector = new Map<string, InboundTrendDirection>(trend.byConnector.map((r) => [r.connectorId, r.direction]));
+  const newSet = new Set(trend.newConnectors);
+  const quietSet = new Set(trend.quietConnectors);
+  // bounded provenance sample per connector (first-seen order over the rows)
+  const idsByConnector = new Map<string, string[]>();
+  for (const r of rows) {
+    const cur = idsByConnector.get(r.connectorId) ?? [];
+    if (cur.length < MAX_CONNECTOR_INTEL_EVENT_IDS) cur.push(r.eventId);
+    idsByConnector.set(r.connectorId, cur);
+  }
+  return summary.map((s) => {
+    const state: ConnectorInboundState = newSet.has(s.connectorId) ? 'NEW' : quietSet.has(s.connectorId) ? 'QUIET' : 'ACTIVE';
+    return {
+      connectorId: s.connectorId,
+      provider: s.provider,
+      verifiedSource: s.provider,
+      events: s.events,
+      lastReceivedAt: s.lastReceivedAt,
+      trendDirection: trend.comparable ? dirByConnector.get(s.connectorId) ?? null : null,
+      state,
+      correlatable: false,
+      dedupeRefStatus: 'absent',
+      sampleEventIds: idsByConnector.get(s.connectorId) ?? [],
+    };
+  });
+}
+
 /** The minimal read surface this projection needs — satisfied by the existing `EventBus`. */
 export interface InboundLineageSource {
   replay(filter?: { types?: readonly string[]; limit?: number }): PlatformEvent[];

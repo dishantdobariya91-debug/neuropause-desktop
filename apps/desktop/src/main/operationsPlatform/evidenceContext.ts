@@ -26,6 +26,7 @@ import type { AiContextItem } from '@neuropause/shared';
 import type { EvidenceHit } from './evidenceSearch';
 import type { TraceEntry } from './evidenceTrace';
 import type { ReliabilitySummary } from './operationalReliability';
+import type { ConnectorInboundIntelligence } from '../connectors/inbound/lineage';
 
 /** Coarse context channel (frozen enum). Exact provenance is carried per-item in `evidence[]`. */
 const EVIDENCE_SOURCE = 'timeline' as const;
@@ -83,6 +84,33 @@ export function projectPostureForAI(summary: ReliabilitySummary): AiContextItem[
       source: EVIDENCE_SOURCE,
       text: `Operational posture — top recurring delivery error (${top.count}×): ${top.signature}`,
       evidence: [{ kind: 'operational-posture', id: 'top-error' }],
+    });
+  }
+  return out;
+}
+
+/**
+ * S135 — project per-connector CONNECTOR INBOUND INTELLIGENCE into grounding item(s). Lets the Brain answer
+ * "which connectors are active / new / quiet, and how much verified inbound arrived" — descriptive facts the
+ * evidence rows alone don't aggregate. Bounded, credential-free, provenance-tagged `connector-intelligence`
+ * (distinct from the row-level `connector-inbound` search-hit kind, so the aggregate is unambiguous).
+ * DESCRIPTIVE ONLY: reuses S123's NEW/QUIET/ACTIVE state + volume direction — no invented health/SLO/score.
+ */
+export function projectConnectorIntelligenceForAI(intel: readonly ConnectorInboundIntelligence[], limit = 10): AiContextItem[] {
+  const out: AiContextItem[] = [];
+  for (const c of intel.slice(0, Math.max(0, limit))) {
+    const bits = [
+      `${c.connectorId} (${c.provider})`,
+      `${c.events} verified inbound`,
+      `state ${c.state}`,
+      c.trendDirection ? `trend ${c.trendDirection}` : null,
+      `at ${iso(c.lastReceivedAt)}`,
+      'not correlatable',
+    ].filter(Boolean);
+    out.push({
+      source: EVIDENCE_SOURCE,
+      text: `Connector inbound — ${bits.join(' · ')}.`,
+      evidence: [{ kind: 'connector-intelligence', id: c.connectorId }],
     });
   }
   return out;

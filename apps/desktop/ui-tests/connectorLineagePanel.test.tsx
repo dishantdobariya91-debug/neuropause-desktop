@@ -41,6 +41,25 @@ describe('ConnectorLineagePanel', () => {
     expect(screen.getByText('credential-free')).toBeTruthy();
   });
 
+  it('S135 — renders the per-connector inbound intelligence section (state + correlatable + dedupe)', async () => {
+    route(IpcChannel.PlatformCommandDispatch, () =>
+      resp({
+        counts: { lineage: 2, connectors: 1 },
+        lineage: [{ eventId: 'e1', connectorId: 'github', provider: 'github', verifiedSource: 'github', receivedAt: 1_700_000_000_000, tenantId: 'tenant-A', dedupeRef: null, credentialsPresent: false }],
+        summary: [{ connectorId: 'github', provider: 'github', events: 2, lastReceivedAt: 1_700_000_000_000 }],
+        intelligence: [
+          { connectorId: 'github', provider: 'github', verifiedSource: 'github', events: 2, lastReceivedAt: 1_700_000_000_000, trendDirection: 'INCREASE', state: 'ACTIVE', correlatable: false, dedupeRefStatus: 'absent', sampleEventIds: ['e1'] },
+        ],
+      }),
+    );
+    render(<ConnectorLineagePanel />);
+    await waitFor(() => expect(screen.getByText('Connector inbound intelligence')).toBeTruthy());
+    expect(screen.getByText('ACTIVE')).toBeTruthy();
+    expect(screen.getByText(/2 verified inbound/)).toBeTruthy();
+    expect(screen.getByText(/not correlatable/)).toBeTruthy();
+    expect(screen.getByText(/dedupe absent/)).toBeTruthy();
+  });
+
   it('renders the inbound TREND section (new / quiet connectors)', async () => {
     route(IpcChannel.PlatformCommandDispatch, () =>
       resp({

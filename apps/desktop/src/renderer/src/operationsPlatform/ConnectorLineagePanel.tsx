@@ -35,8 +35,22 @@ interface InboundTrend {
   quietConnectors: string[];
   byConnector: Array<{ connectorId: string; recent: number; previous: number; direction: InboundDir }>;
 }
-interface LineageData { counts: { lineage: number; connectors: number }; lineage: LineageRow[]; summary: ConnectorSummary[]; trend?: InboundTrend; tenantId: string }
+// S135 — merged per-connector inbound intelligence (count · latest · trend · descriptive state · correlatable).
+interface ConnectorIntel {
+  connectorId: string;
+  provider: string;
+  verifiedSource: string;
+  events: number;
+  lastReceivedAt: number;
+  trendDirection: InboundDir | null;
+  state: 'NEW' | 'QUIET' | 'ACTIVE';
+  correlatable: boolean;
+  dedupeRefStatus: string;
+  sampleEventIds: string[];
+}
+interface LineageData { counts: { lineage: number; connectors: number }; lineage: LineageRow[]; summary: ConnectorSummary[]; trend?: InboundTrend; intelligence?: ConnectorIntel[]; tenantId: string }
 const inArrow = (d: InboundDir): string => (d === 'INCREASE' ? '▲' : d === 'DECREASE' ? '▼' : '→');
+const stateTone = (s: ConnectorIntel['state']): 'green' | 'blue' | 'gray' => (s === 'NEW' ? 'blue' : s === 'QUIET' ? 'gray' : 'green');
 
 const iso = (ms: number): string => (Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : '—');
 
@@ -71,6 +85,7 @@ export function ConnectorLineagePanel(): JSX.Element {
   const rows = data?.lineage ?? [];
   const summary = data?.summary ?? [];
   const trend = data?.trend;
+  const intelligence = data?.intelligence ?? [];
 
   return (
     <OpsPanel
@@ -118,6 +133,24 @@ export function ConnectorLineagePanel(): JSX.Element {
                   ))}
                 </div>
               )}
+            </div>
+          )}
+          {intelligence.length > 0 && (
+            <div className="mb-3">
+              <div className="mb-1 text-2xs font-semibold uppercase tracking-wide text-faint">Connector inbound intelligence</div>
+              <div className="surface-raised divide-y divide-[var(--hairline)] rounded-2xl px-4 shadow-card">
+                {intelligence.map((c) => (
+                  <div key={`intel:${c.connectorId}`} className="flex items-center gap-3 py-2 text-2xs">
+                    <StatusBadge tone={stateTone(c.state)} label={c.state} />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-medium text-ink">{c.connectorId} <span className="text-faint">· {c.provider}</span></div>
+                      <div className="truncate text-faint">
+                        {`${c.events} verified inbound${c.trendDirection ? ` · ${inArrow(c.trendDirection)} ${c.trendDirection.toLowerCase()}` : ''} · last ${iso(c.lastReceivedAt)} · ${c.correlatable ? 'correlatable' : 'not correlatable'} · dedupe ${c.dedupeRefStatus}`}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
           {summary.length > 0 && (

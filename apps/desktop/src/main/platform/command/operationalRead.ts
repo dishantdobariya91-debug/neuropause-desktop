@@ -17,11 +17,11 @@
  */
 import type { CommittedCommand, DurableCommandJournal } from './durableCommandJournal';
 import type { DeliveredEventLog } from './deliveredEventLog';
-import { readInboundLineage, summarizeInboundLineage, summarizeInboundLineageTrend, type InboundLineageSource } from '../../connectors/inbound/lineage';
+import { readInboundLineage, summarizeInboundLineage, summarizeInboundLineageTrend, composeConnectorInboundIntelligence, type InboundLineageSource } from '../../connectors/inbound/lineage';
 import { summarizeReliability, summarizeReliabilityTrend } from '../../operationsPlatform/operationalReliability';
 import { searchOperationalEvidence, MAX_EVIDENCE_RESULTS, type EvidenceKind } from '../../operationsPlatform/evidenceSearch';
 import { composeEvidenceTrace, type DeliveryPosture } from '../../operationsPlatform/evidenceTrace';
-import { projectEvidenceForAI, projectPostureForAI } from '../../operationsPlatform/evidenceContext';
+import { projectEvidenceForAI, projectPostureForAI, projectConnectorIntelligenceForAI } from '../../operationsPlatform/evidenceContext';
 import { deriveState } from './deliveryOperations';
 import { computePlatformHealth } from './platformHealth';
 
@@ -106,7 +106,12 @@ export function buildInboundLineage(
   // S123 — connector inbound TREND over the SAME tenant-scoped lineage rows (two chronological windows).
   // Additive field on the same governed read (generic `data` — no frozen contract change).
   const trend = summarizeInboundLineageTrend(rows);
-  return { ok: true, data: { tenantId, limit, counts: { lineage: rows.length, connectors: summary.length }, lineage: bounded, summary, trend } };
+  // S135 — per-connector CONNECTOR INBOUND INTELLIGENCE: a pure MERGE of the S121 rollup + S123 trend into
+  // one intelligible record per connector (count · latest · trend direction · descriptive NEW/QUIET/ACTIVE
+  // state · correlatable · dedupeRef status · bounded provenance). Additive field on the SAME generic `data`
+  // response — no frozen contract change, no new operation/channel/store.
+  const intelligence = composeConnectorInboundIntelligence(rows);
+  return { ok: true, data: { tenantId, limit, counts: { lineage: rows.length, connectors: summary.length }, lineage: bounded, summary, trend, intelligence } };
 }
 
 /**
@@ -230,7 +235,7 @@ export function buildEvidenceContext(
   lineageSource: InboundLineageSource | undefined,
   deliveredLog: DeliveredEventLog | undefined,
   tenantId: string,
-  params: OperationalReadParams & { query?: unknown; correlationId?: unknown; relevanceQuery?: unknown; includePosture?: unknown },
+  params: OperationalReadParams & { query?: unknown; correlationId?: unknown; relevanceQuery?: unknown; includePosture?: unknown; includeConnectorIntel?: unknown },
 ): OperationalReadResult {
   const limit = boundLimit(params.limit);
   // S133 — the live-assistant grounding leg opts in to an AGGREGATE posture summary. The bounded evidence
@@ -238,6 +243,9 @@ export function buildEvidenceContext(
   // item (reliability totals + ratios + top error signature) is prepended, derived from the SAME journal
   // via `summarizeReliability`. Opt-in ⇒ the existing QueryEvidenceContext read is unchanged when absent.
   const includePosture = params.includePosture === true;
+  // S135 — opt-in per-connector CONNECTOR INBOUND INTELLIGENCE prefix (which connectors are active/new/quiet),
+  // derived from the SAME tenant-scoped lineage; descriptive, credential-free. Absent ⇒ read unchanged.
+  const includeConnectorIntel = params.includeConnectorIntel === true;
   const query = typeof params.query === 'string' ? params.query : '';
   const correlationId = typeof params.correlationId === 'string' && params.correlationId.trim() !== '' ? params.correlationId : '';
   // S130 — the live-assistant grounding leg passes the user's QUESTION as `relevanceQuery`. Unlike the
@@ -271,7 +279,10 @@ export function buildEvidenceContext(
   // S133 — the aggregate posture prefix (≤2 items), computed from the SAME tenant-scoped commands. It
   // takes a small slice of the grounding budget so the total stays bounded (evidence rows get the rest).
   const postureItems = includePosture ? projectPostureForAI(summarizeReliability(commands)) : [];
-  const rowLimit = Math.max(1, limit - postureItems.length);
+  // S135 — the per-connector inbound-intelligence prefix (bounded), from the SAME tenant-scoped lineage.
+  const connectorItems = includeConnectorIntel ? projectConnectorIntelligenceForAI(composeConnectorInboundIntelligence(lineage)) : [];
+  const prefix = [...postureItems, ...connectorItems];
+  const rowLimit = Math.max(1, limit - prefix.length);
 
   const rows = projectEvidenceForAI({
     hits: search.hits,
@@ -279,7 +290,7 @@ export function buildEvidenceContext(
     limit: rowLimit,
     ...(rankOnly ? { query: relevanceQuery } : {}),
   });
-  const context = [...postureItems, ...rows];
+  const context = [...prefix, ...rows];
   return {
     ok: true,
     data: {
@@ -291,6 +302,8 @@ export function buildEvidenceContext(
       relevanceRanked: rankOnly,
       // S133 — expose whether the aggregate posture prefix was included (honest surface).
       postureIncluded: postureItems.length > 0,
+      // S135 — expose whether the connector-inbound-intelligence prefix was included (honest surface).
+      connectorIntelIncluded: connectorItems.length > 0,
       itemCount: context.length,
       groundingOnly: true,
       context,
