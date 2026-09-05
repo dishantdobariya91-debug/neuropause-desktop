@@ -655,6 +655,23 @@ export const ipc = {
       return promise;
     },
     /**
+     * S125 — governed operational EVIDENCE SEARCH read. A tenant-safe, bounded, read-only deterministic
+     * lexical/filter search over the SAME committed-command history + verified connector inbound lineage,
+     * on the SAME governed `platform:command.dispatch` READ branch (`QueryEvidenceSearch`). Tenant is
+     * server-resolved; the renderer supplies NO tenant. `query` filters (AND-token); `kind` optionally
+     * narrows to 'command' | 'inbound'. No new channel/command/store/index/engine.
+     */
+    evidenceSearch: (params: { query?: string; limit?: number; kind?: 'command' | 'inbound' } = {}): Promise<PlatformCommandDispatchResponse> => {
+      const settle = perfRecorder.ipcStart(String(IpcChannel.PlatformCommandDispatch));
+      const promise = rawInvoke(IpcChannel.PlatformCommandDispatch, {
+        operation: 'QueryEvidenceSearch',
+        payload: params,
+        idempotencyKey: `evsrch-${Date.now().toString(36)}`,
+      }) as Promise<PlatformCommandDispatchResponse>;
+      promise.then(settle, settle);
+      return promise;
+    },
+    /**
      * GOVERNED SALES ORDER CREATE (ERP Session 43) — the FIRST renderer WRITE through the governed
      * command spine, closing the S42 exposure gap (the certified path was "correct but dark"). Reuses
      * the EXISTING `platform:command.dispatch` channel + the `CreateSalesOrder` domain command (S21):

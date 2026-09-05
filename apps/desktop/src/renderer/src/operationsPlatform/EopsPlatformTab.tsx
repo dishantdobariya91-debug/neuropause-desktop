@@ -22,6 +22,7 @@ import { ipc } from '@renderer/lib/ipc';
 import { Icon } from '@renderer/components/ui/Icon';
 import { OpsPanel, StatusBadge } from '@renderer/operations/primitives';
 import { OperationalOverviewPanel } from './OperationalOverviewPanel';
+import { EvidenceSearchPanel } from './EvidenceSearchPanel';
 import { OperationalHistoryPanel } from './OperationalHistoryPanel';
 import { DeliveryOperationsPanel } from './DeliveryOperationsPanel';
 import { AuditIntegrityPanel } from './AuditIntegrityPanel';
@@ -339,6 +340,7 @@ export function EopsPlatformTab(): JSX.Element {
       <DeliveryOperationsPanel />
       <OperationalReliabilityPanel />
       <ConnectorLineagePanel />
+      <EvidenceSearchPanel />
       <AuditIntegrityPanel />
       <OperationalHistoryPanel />
     </>

@@ -1,0 +1,115 @@
+/**
+ * S125 — the operator-facing Operational Evidence Search panel. A READ-ONLY, tenant-scoped search over
+ * canonical operational evidence (committed-command history + verified connector inbound lineage),
+ * fetched through the governed read IPC (`ipc.platform.evidenceSearch` → `platform:command.dispatch`,
+ * `QueryEvidenceSearch` → the S125 pure deterministic lexical projection, tenant resolved SERVER-SIDE).
+ *
+ * It mutates nothing, creates no ERP transaction, and renders exactly the sanitized, bounded, credential-
+ * free evidence references the main process returns — id / source / type / time / concise summary /
+ * status / correlation. It NEVER shows command payloads, raw outbox error text, secrets, tokens, or
+ * connector payloads (the projection carries none). Empty query browses the most-recent evidence.
+ */
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ipc } from '@renderer/lib/ipc';
+import { OpsPanel, StatusBadge } from '@renderer/operations/primitives';
+import { EmptyState, LoadingBlock } from '@renderer/operationsCenter/primitives';
+
+interface EvidenceHit {
+  kind: 'command' | 'inbound';
+  id: string;
+  source: string;
+  type: string;
+  timestamp: number;
+  summary: string;
+  status: string | null;
+  correlationId: string | null;
+  connectorId: string | null;
+  score: number;
+}
+interface EvidenceData { query: string; counts: { command: number; inbound: number; total: number }; bounded: boolean; hits: EvidenceHit[] }
+
+const iso = (ms: number): string => (Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : '—');
+
+export function EvidenceSearchPanel(): JSX.Element {
+  const [query, setQuery] = useState<string>('');
+  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [data, setData] = useState<EvidenceData | null>(null);
+  const [message, setMessage] = useState<string>('');
+  const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const run = useCallback(async (q: string) => {
+    setState('loading');
+    try {
+      const resp = await ipc.platform.evidenceSearch({ query: q, limit: 50 });
+      if (!resp.ok) {
+        setMessage(resp.error?.message ?? 'Evidence search is not available.');
+        setState('error');
+        return;
+      }
+      setData((resp.data ?? null) as unknown as EvidenceData | null);
+      setState('ready');
+    } catch {
+      setMessage('Evidence search could not be loaded.');
+      setState('error');
+    }
+  }, []);
+
+  useEffect(() => {
+    void run('');
+  }, [run]);
+
+  const onChange = (q: string): void => {
+    setQuery(q);
+    if (debounce.current) clearTimeout(debounce.current);
+    debounce.current = setTimeout(() => void run(q), 200);
+  };
+
+  const hits = data?.hits ?? [];
+
+  return (
+    <OpsPanel
+      title="Evidence search"
+      subtitle="Search governed command history + verified connector lineage — read-only, tenant-scoped, credential-free"
+      actions={
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Search evidence…"
+          aria-label="Search operational evidence"
+          className="rounded-lg border border-[var(--hairline)] bg-transparent px-2 py-1 text-2xs text-ink placeholder:text-faint focus:outline-none"
+        />
+      }
+    >
+      {state === 'loading' ? (
+        <LoadingBlock label="Searching evidence…" />
+      ) : state === 'error' ? (
+        <EmptyState title="Unavailable" hint={message} />
+      ) : hits.length === 0 ? (
+        <EmptyState title="No matching evidence" hint={query.trim() ? 'No command or connector evidence matches this query.' : 'Governed command and connector evidence will appear here.'} />
+      ) : (
+        <>
+          <div className="mb-3 flex flex-wrap gap-2">
+            <StatusBadge tone="gray" label={`Commands: ${data?.counts.command ?? 0}`} />
+            <StatusBadge tone="blue" label={`Inbound: ${data?.counts.inbound ?? 0}`} />
+            {data?.bounded ? <StatusBadge tone="orange" label="More results — refine query" /> : null}
+          </div>
+          <div className="surface-raised divide-y divide-[var(--hairline)] rounded-2xl px-4 shadow-card">
+            {hits.map((h) => (
+              <div key={`${h.kind}:${h.id}`} className="flex items-center gap-3 py-2.5">
+                <StatusBadge tone={h.kind === 'command' ? 'purple' : 'blue'} label={h.kind} />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium text-ink">{h.summary}</div>
+                  <div className="mt-0.5 truncate text-2xs text-faint">
+                    {`${h.source} · ${h.type} · ${iso(h.timestamp)} · id ${h.id}${h.correlationId ? ` · corr ${h.correlationId}` : ''}`}
+                  </div>
+                </div>
+                {h.status ? <StatusBadge tone="gray" label={h.status} /> : null}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </OpsPanel>
+  );
+}

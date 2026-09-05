@@ -19,6 +19,7 @@ import type { CommittedCommand, DurableCommandJournal } from './durableCommandJo
 import type { DeliveredEventLog } from './deliveredEventLog';
 import { readInboundLineage, summarizeInboundLineage, summarizeInboundLineageTrend, type InboundLineageSource } from '../../connectors/inbound/lineage';
 import { summarizeReliability, summarizeReliabilityTrend } from '../../operationsPlatform/operationalReliability';
+import { searchOperationalEvidence, type EvidenceKind } from '../../operationsPlatform/evidenceSearch';
 import { computePlatformHealth } from './platformHealth';
 
 /**
@@ -42,6 +43,11 @@ export const OPERATIONAL_READ_OPERATIONS: ReadonlySet<string> = new Set([
   // + inbound-trend) into ONE compact operator posture. A pure composition layer — it opens no store,
   // adds no source of truth, and mutates nothing. Routed to `buildOperationalOverview`.
   'QueryOperationalOverview',
+  // S125 — governed operational EVIDENCE SEARCH: a SIBLING read on this SAME branch. A deterministic
+  // lexical/filter search over the SAME tenant-scoped committed-command history + verified connector
+  // inbound lineage, making fragmented canonical evidence discoverable. Pure, read-only, credential-free,
+  // bounded. Routed to `buildEvidenceSearch`. No new search engine / vector store / index / channel.
+  'QueryEvidenceSearch',
 ]);
 
 export const MAX_LIMIT = 100;
@@ -131,6 +137,29 @@ export function buildReliabilitySummary(
       ...(summary.budget ? { budget: summary.budget } : {}),
     },
   };
+}
+
+/**
+ * S125 — the governed operational EVIDENCE SEARCH. `tenantId` MUST be the authoritative server-resolved
+ * tenant (never a renderer claim). Reads only the EXISTING per-tenant journal records + verified inbound
+ * lineage, runs the pure deterministic lexical search, and returns a bounded, sanitized, credential-free
+ * result. A null lineage source (bus not bound at boot) simply contributes no inbound evidence — never an
+ * error, never fabricated rows. Optional `kind` narrows to one evidence kind; an unknown kind FAILS CLOSED
+ * to "both" rather than erroring.
+ */
+export function buildEvidenceSearch(
+  journal: DurableCommandJournal,
+  lineageSource: InboundLineageSource | undefined,
+  tenantId: string,
+  params: OperationalReadParams & { query?: unknown; kind?: unknown },
+): OperationalReadResult {
+  const limit = boundLimit(params.limit);
+  const query = typeof params.query === 'string' ? params.query : '';
+  const kind: EvidenceKind | undefined = params.kind === 'command' || params.kind === 'inbound' ? params.kind : undefined;
+  const commands = journal.records(tenantId); // tenant-scoped by construction
+  const lineage = lineageSource ? readInboundLineage(lineageSource, tenantId) : [];
+  const result = searchOperationalEvidence(commands, lineage, query, { limit, ...(kind ? { kind } : {}) });
+  return { ok: true, data: { tenantId, limit, query: result.query, counts: result.counts, bounded: result.bounded, hits: result.hits } };
 }
 
 /**
