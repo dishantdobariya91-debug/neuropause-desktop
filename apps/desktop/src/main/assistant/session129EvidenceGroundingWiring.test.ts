@@ -29,13 +29,22 @@ describe('S129 · live assistant evidence grounding wiring', () => {
   });
 
   it('B/C — tenant isolation is server-resolved by the provider; the bridge passes NO tenant', () => {
-    // The bridge signature carries only {query,correlationId,limit} — never a tenant selector, so a
-    // caller cannot request another tenant's grounding. (Provider resolves activeTenantScope itself.)
+    // The bridge signature carries only {query,correlationId,limit,relevanceQuery} — never a tenant
+    // selector, so a caller cannot request another tenant's grounding. (Provider resolves the tenant.)
     let sawArgs: unknown;
     evidenceContextProvider.current = (opts) => { sawArgs = opts; return []; };
     resolveEvidenceContext({ query: 'x' });
     expect(sawArgs).toEqual({ query: 'x' });
     expect(JSON.stringify(sawArgs)).not.toMatch(/tenant/i);
+  });
+
+  it('S130 — the relevanceQuery (user question) is forwarded verbatim; still no tenant selector', () => {
+    let sawArgs: { relevanceQuery?: string } | undefined;
+    evidenceContextProvider.current = (opts) => { sawArgs = opts; return []; };
+    // Mirrors the assistant buildContext tail: it grounds with { relevanceQuery: req.query }.
+    resolveEvidenceContext({ relevanceQuery: 'what happened with my sales order' });
+    expect(sawArgs?.relevanceQuery).toBe('what happened with my sales order');
+    expect(JSON.stringify(sawArgs)).not.toMatch(/tenant/i); // relevance signal only, never a selector
   });
 
   it('D — absent evidenceContext dependency ⇒ context is unchanged (backward-compatible)', () => {

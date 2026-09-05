@@ -19,7 +19,7 @@ import type { CommittedCommand, DurableCommandJournal } from './durableCommandJo
 import type { DeliveredEventLog } from './deliveredEventLog';
 import { readInboundLineage, summarizeInboundLineage, summarizeInboundLineageTrend, type InboundLineageSource } from '../../connectors/inbound/lineage';
 import { summarizeReliability, summarizeReliabilityTrend } from '../../operationsPlatform/operationalReliability';
-import { searchOperationalEvidence, type EvidenceKind } from '../../operationsPlatform/evidenceSearch';
+import { searchOperationalEvidence, MAX_EVIDENCE_RESULTS, type EvidenceKind } from '../../operationsPlatform/evidenceSearch';
 import { composeEvidenceTrace, type DeliveryPosture } from '../../operationsPlatform/evidenceTrace';
 import { projectEvidenceForAI } from '../../operationsPlatform/evidenceContext';
 import { deriveState } from './deliveryOperations';
@@ -230,14 +230,24 @@ export function buildEvidenceContext(
   lineageSource: InboundLineageSource | undefined,
   deliveredLog: DeliveredEventLog | undefined,
   tenantId: string,
-  params: OperationalReadParams & { query?: unknown; correlationId?: unknown },
+  params: OperationalReadParams & { query?: unknown; correlationId?: unknown; relevanceQuery?: unknown },
 ): OperationalReadResult {
   const limit = boundLimit(params.limit);
   const query = typeof params.query === 'string' ? params.query : '';
   const correlationId = typeof params.correlationId === 'string' && params.correlationId.trim() !== '' ? params.correlationId : '';
+  // S130 — the live-assistant grounding leg passes the user's QUESTION as `relevanceQuery`. Unlike the
+  // explicit AND-search `query` (which EXCLUDES rows missing a token), relevance ranking must NEVER empty
+  // the grounding: a multi-word natural-language question would drop every row under AND-semantics. So when
+  // a relevanceQuery is present and no explicit AND-`query` was requested, browse a larger tenant-scoped
+  // candidate POOL (no exclusion) and let `projectEvidenceForAI` RANK it down to the grounding bound. The
+  // existing QueryEvidenceContext read (which never sets relevanceQuery) keeps its exact prior semantics.
+  const relevanceQuery = typeof params.relevanceQuery === 'string' && params.relevanceQuery.trim() !== '' ? params.relevanceQuery : '';
+  const rankOnly = relevanceQuery !== '' && query === '';
   const commands = journal.records(tenantId); // tenant-scoped by construction
   const lineage = lineageSource ? readInboundLineage(lineageSource, tenantId) : [];
-  const search = searchOperationalEvidence(commands, lineage, query, { limit });
+  // Rank mode fetches a candidate pool (bounded, recency-ordered) so ranking can reach beyond the small
+  // grounding bound; search mode keeps the exact prior behavior.
+  const search = searchOperationalEvidence(commands, lineage, query, { limit: rankOnly ? MAX_EVIDENCE_RESULTS : limit });
 
   let traceEntries: ReturnType<typeof composeEvidenceTrace>['entries'] = [];
   if (correlationId !== '') {
@@ -253,13 +263,21 @@ export function buildEvidenceContext(
     traceEntries = composeEvidenceTrace(commands, delivered, correlationId, { limit, deliveryByTxId }).entries;
   }
 
-  const context = projectEvidenceForAI({ hits: search.hits, traceEntries, limit });
+  const context = projectEvidenceForAI({
+    hits: search.hits,
+    traceEntries,
+    limit,
+    ...(rankOnly ? { query: relevanceQuery } : {}),
+  });
   return {
     ok: true,
     data: {
       tenantId,
       query: search.query,
       correlationId: correlationId === '' ? null : correlationId,
+      // S130 — expose whether relevance ranking shaped this grounding (honest surface; empty when the
+      // read ran in plain browse/search mode).
+      relevanceRanked: rankOnly,
       itemCount: context.length,
       groundingOnly: true,
       context,

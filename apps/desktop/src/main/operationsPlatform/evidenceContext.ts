@@ -63,18 +63,58 @@ function traceEntryToItem(e: TraceEntry): AiContextItem {
   return { source: EVIDENCE_SOURCE, text: `Correlated evidence — ${bits.join(' · ')}.`, evidence: [{ kind: e.source, id: e.id }] };
 }
 
+/**
+ * S130 — tokenize a free-text question into lowercase relevance terms (bounded; hostile input cannot
+ * escape). Mirrors the S125 search tokenizer intentionally: the same term class ranks and searches, so
+ * the grounding relevance number is the SAME kind of lexical measure the operator already sees on the
+ * evidence-search surface — never a business judgement.
+ */
+function relevanceTokens(query: unknown): string[] {
+  const s = typeof query === 'string' ? query : '';
+  return s
+    .toLowerCase()
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 2) // 1-char noise ("a", "i") never boosts
+    .slice(0, 16); // bounded: a pathological question cannot blow up the ranking loop
+}
+
+/**
+ * S130 — the count of distinct query tokens that appear in an item's SAFE text. A pure, deterministic
+ * lexical OVERLAP measure; 0 means "no lexical relevance to the question", never "exclude". Deliberately
+ * NON-EXCLUDING (unlike the S125 AND-search): grounding must never go empty when evidence exists — a
+ * question with no lexical overlap simply leaves every score at 0 and the original recency order stands.
+ */
+export function relevanceScore(item: AiContextItem, tokens: readonly string[]): number {
+  if (tokens.length === 0) return 0;
+  const h = item.text.toLowerCase();
+  let score = 0;
+  for (const t of tokens) if (h.includes(t)) score += 1;
+  return score;
+}
+
 export interface EvidenceGroundingInput {
   /** evidence-search hits (already tenant-scoped, sanitized). */
   hits?: readonly EvidenceHit[];
   /** correlation-trace entries (already tenant-scoped, sanitized). */
   traceEntries?: readonly TraceEntry[];
   limit?: number;
+  /**
+   * S130 — the operator/AI question, used ONLY to RANK (never to exclude) which evidence floats into the
+   * bound. Absent/empty ⇒ pure recency order (identical to prior behavior). It is a relevance signal, not
+   * a tenant selector: the caller has ALREADY tenant-scoped `hits`/`traceEntries`; this string filters
+   * nothing across tenants and grants nothing.
+   */
+  query?: string;
 }
 
 /**
  * Project governed evidence into grounding context for the Brain. Pure and total. Trace entries (the more
  * specific "what happened for this correlation") lead, then search hits, deduplicated by provenance
- * (kind:id), bounded. Empty input ⇒ empty context (honest: nothing to ground on), never fabricated.
+ * (kind:id). When a `query` is supplied it re-orders the deduped items by lexical relevance (STABLE:
+ * higher overlap first, original relative order preserved on ties and for zero-overlap items) BEFORE the
+ * bound, so the most relevant evidence survives the cap. Empty input ⇒ empty context (honest: nothing to
+ * ground on), never fabricated. No `query` (or no lexical overlap) ⇒ byte-identical to recency order.
  */
 export function projectEvidenceForAI(input: EvidenceGroundingInput): AiContextItem[] {
   const limit = boundGroundingLimit(input.limit);
@@ -89,5 +129,16 @@ export function projectEvidenceForAI(input: EvidenceGroundingInput): AiContextIt
   };
   for (const e of input.traceEntries ?? []) push(traceEntryToItem(e));
   for (const h of input.hits ?? []) push(hitToItem(h));
+
+  const tokens = relevanceTokens(input.query);
+  if (tokens.length > 0) {
+    // Stable relevance sort: decorate with original index so equal scores keep the recency order and a
+    // zero-overlap question is a no-op. Never drops an item — ranking, not filtering.
+    return out
+      .map((item, index) => ({ item, index, score: relevanceScore(item, tokens) }))
+      .sort((a, b) => b.score - a.score || a.index - b.index)
+      .slice(0, limit)
+      .map((d) => d.item);
+  }
   return out.slice(0, limit);
 }

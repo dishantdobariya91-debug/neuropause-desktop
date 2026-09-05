@@ -87,7 +87,7 @@ export interface AssistantSubsystemDeps {
    * the provider). Appended in `buildContext` exactly like the capability source. ABSENT ⇒ previous
    * behavior unchanged. It grounds the Brain; it grants no execution.
    */
-  evidenceContext?: (opts?: { query?: string; correlationId?: string; limit?: number }) => AiContextItem[];
+  evidenceContext?: (opts?: { query?: string; correlationId?: string; limit?: number; relevanceQuery?: string }) => AiContextItem[];
   publish: (event: {
     type: string;
     category: string;
@@ -340,7 +340,11 @@ export function initAssistant(deps: AssistantSubsystemDeps): AssistantSubsystem 
       // S129 — append GOVERNED operational evidence grounding (S128), exactly like the capability source:
       // read-only, tenant-scoped (resolved server-side by the provider), credential-free, provenance-tagged,
       // bounded. ABSENT dep ⇒ identical to prior behavior. It grounds the Brain; it grants no execution.
-      const evidence = deps.evidenceContext ? deps.evidenceContext() : [];
+      // S130 — pass the user's QUESTION as `relevanceQuery` so grounding RANKS the tenant's evidence by
+      // lexical relevance (non-excluding: it never empties the grounding — degrades to recency when the
+      // question has no lexical overlap). It is a relevance signal only, NOT a tenant selector (the
+      // provider resolves the tenant server-side and the evidence is already tenant-scoped).
+      const evidence = deps.evidenceContext ? deps.evidenceContext({ relevanceQuery: req.query }) : [];
       return [...builder.build(req), ...capabilityContext, ...evidence];
     },
     runAi: (req) => aiEngine.run(req),

@@ -15,14 +15,14 @@ import type { AiContextItem } from '@neuropause/shared';
 
 /** Set once by `buildPlatformCommandHandlers`; a server-tenant-resolving grounding provider. */
 export const evidenceContextProvider: {
-  current: ((opts: { query?: string; correlationId?: string; limit?: number }) => AiContextItem[]) | null;
+  current: ((opts: { query?: string; correlationId?: string; limit?: number; relevanceQuery?: string }) => AiContextItem[]) | null;
 } = { current: null };
 
 /**
  * Resolve grounding context for the live assistant. Fails closed: no provider bound (cold start) or any
  * error ⇒ `[]` (honest "no grounding", never a throw into the assistant turn).
  */
-export function resolveEvidenceContext(opts: { query?: string; correlationId?: string; limit?: number } = {}): AiContextItem[] {
+export function resolveEvidenceContext(opts: { query?: string; correlationId?: string; limit?: number; relevanceQuery?: string } = {}): AiContextItem[] {
   try {
     return evidenceContextProvider.current ? evidenceContextProvider.current(opts) : [];
   } catch {
