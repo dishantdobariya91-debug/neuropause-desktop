@@ -92,3 +92,6 @@ apps/desktop/resources/THIRD-PARTY-NOTICES.md
 .env.local-stack
 .np-local-backend.pid
 .np-local-backend.log
+
+# S131 — generated SBOM/provenance artifacts (derived from package-lock.json; regenerated in CI)
+apps/desktop/dist-sbom/

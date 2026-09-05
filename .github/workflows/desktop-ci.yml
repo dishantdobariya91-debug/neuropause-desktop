@@ -35,6 +35,11 @@ on:
       - 'apps/desktop/**'
       - 'packages/shared/**'
 
+# S131 — least privilege. This job only reads the repo and runs tests; it needs no write scopes on the
+# GITHUB_TOKEN. Declared explicitly so a future step cannot silently inherit broad default permissions.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -53,3 +58,27 @@ jobs:
         run: npm run test -w @neuropause/desktop
       - name: Build (desktop)
         run: npm run build -w @neuropause/desktop
+      # S131 — supply-chain trust. SBOM + verification are deterministic (offline fold over the lockfile);
+      # the packaged-content assertion runs on the freshly-built out/** (no electron-builder needed).
+      - name: SBOM — generate + verify (CycloneDX, corresponds to lockfile)
+        run: npm run verify:sbom -w @neuropause/desktop
+      - name: Packaged-content assertion (out/** carries no prohibited material)
+        run: npm run verify:packaged -w @neuropause/desktop
+      - name: Upload SBOM + provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-sbom
+          path: apps/desktop/dist-sbom/
+          if-no-files-found: error
+      # S131 — dependency vulnerability scan. This SURFACES the current advisory posture (full tree + a
+      # production-dependency high+ view) on every PR; it is REPORT-ONLY by design and does not gate.
+      # Rationale (recorded in SESSION131 cert §Vuln-scan): (1) `npm audit` at the workspace root spans ALL
+      # workspaces, so a backend-only advisory (e.g. the express/body-parser/qs DoS present at S131) would
+      # otherwise fail DESKTOP CI for a package the Electron app never ships — wrong coupling; (2) choosing
+      # a severity threshold that BLOCKS a merge is a release-policy decision the repo has not made, and
+      # S131 does not invent policy. Dependabot (.github/dependabot.yml) provides the ongoing update stream;
+      # a gating threshold + per-workspace scoping is the recommended follow-up remediation slice.
+      - name: Dependency vulnerability scan — full tree (report)
+        run: npm audit --audit-level=info || true
+      - name: Dependency vulnerability scan — production deps high+ (report)
+        run: npm audit --omit=dev --audit-level=high || true
