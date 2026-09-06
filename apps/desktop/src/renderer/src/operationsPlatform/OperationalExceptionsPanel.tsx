@@ -124,7 +124,7 @@ function traceableCorrelationId(r: ExceptionRow): string | null {
   return typeof r.correlationId === 'string' && r.correlationId.trim() !== '' ? r.correlationId.trim() : null;
 }
 
-export function OperationalExceptionsPanel(): JSX.Element {
+export function OperationalExceptionsPanel({ onNavigate }: { onNavigate?: (section: string) => void } = {}): JSX.Element {
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [data, setData] = useState<ExceptionsData | null>(null);
   const [message, setMessage] = useState<string>('');
@@ -194,6 +194,15 @@ export function OperationalExceptionsPanel(): JSX.Element {
                 </div>
                 {/* S140 — Evidence Trace cross-link ONLY when a genuine correlationId is present. */}
                 {corr ? <ExceptionTrace correlationId={corr} /> : null}
+                {/* S141 — held reconciliations carry NO correlationId (so no Evidence Trace); offer a read-only
+                    deep-link to the EXISTING governed Hold Center where they are resolvable. No mutation here. */}
+                {r.kind === 'held_reconciliation' && onNavigate ? (
+                  <div className="mt-1">
+                    <button type="button" onClick={() => onNavigate('holds')} aria-label="Open in Hold Center" className="text-2xs text-muted underline-offset-2 hover:text-ink hover:underline">
+                      Open in Hold Center
+                    </button>
+                  </div>
+                ) : null}
               </div>
             );
           })}

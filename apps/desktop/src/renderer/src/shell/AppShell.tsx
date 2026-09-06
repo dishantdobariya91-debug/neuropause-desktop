@@ -458,7 +458,7 @@ export function AppShell({ session }: { session: Session }): JSX.Element {
       case 'extensibility':
         return <PlatformEcosystemView />;
       case 'opscenter':
-        return <OpsCenterView />;
+        return <OpsCenterView onNavigate={(id) => goToSection(id as SectionId)} />;
       case 'developer':
         return <DeveloperView />;
       case 'ecosystem':

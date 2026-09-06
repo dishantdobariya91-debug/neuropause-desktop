@@ -116,4 +116,33 @@ describe('OperationalExceptionsPanel', () => {
     fireEvent.click(screen.getByLabelText('View evidence trace'));
     await waitFor(() => expect(screen.getByText(/No correlation records/)).toBeTruthy());
   });
+
+  // ---- S141 held-reconciliation → Hold Center deep-link ----
+
+  it('S141 — a held reconciliation offers a read-only Hold Center deep-link (delivery item does NOT)', async () => {
+    let navTo: string | undefined;
+    route(IpcChannel.PlatformCommandDispatch, (payload: unknown) => {
+      const op = (payload as { operation: string }).operation;
+      return op === 'QueryOperationalExceptions' ? excWithCorr() : { ok: true, data: { correlationId: 'corr-tx1', found: false, counts: { total: 0 }, entries: [] }, requestId: 'r', correlationId: 'c', operation: op };
+    });
+    render(<OperationalExceptionsPanel onNavigate={(s) => { navTo = s; }} />);
+    await waitFor(() => expect(screen.getByText('Held for reconciliation: kA')).toBeTruthy());
+    // exactly one Hold Center link — the held item; the delivery item gets Evidence Trace, not Hold Center
+    const links = screen.getAllByLabelText('Open in Hold Center');
+    expect(links.length).toBe(1);
+    fireEvent.click(links[0]);
+    expect(navTo).toBe('holds'); // routes to the EXISTING governed Hold Center section; no mutation here
+    // the held item never offers an Evidence Trace (no correlationId) — only the delivery item does
+    expect(screen.getAllByLabelText('View evidence trace').length).toBe(1);
+  });
+
+  it('S141 — with no onNavigate, no Hold Center link is shown (honest, no dangling action)', async () => {
+    route(IpcChannel.PlatformCommandDispatch, (payload: unknown) => {
+      const op = (payload as { operation: string }).operation;
+      return op === 'QueryOperationalExceptions' ? excWithCorr() : { ok: true, data: { correlationId: 'corr-tx1', found: false, counts: { total: 0 }, entries: [] }, requestId: 'r', correlationId: 'c', operation: op };
+    });
+    render(<OperationalExceptionsPanel />);
+    await waitFor(() => expect(screen.getByText('Held for reconciliation: kA')).toBeTruthy());
+    expect(screen.queryByLabelText('Open in Hold Center')).toBeNull();
+  });
 });

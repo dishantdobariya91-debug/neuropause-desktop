@@ -65,7 +65,7 @@ async function settled<T>(p: Promise<T>, fallback: T): Promise<T> {
   }
 }
 
-export function EopsPlatformTab(): JSX.Element {
+export function EopsPlatformTab({ onNavigate }: { onNavigate?: (section: string) => void } = {}): JSX.Element {
   const [ready, setReady] = useState(false);
   const [d, setD] = useState<EopsData>(EMPTY);
 
@@ -339,7 +339,7 @@ export function EopsPlatformTab(): JSX.Element {
 
       <OperationalOverviewPanel />
       <PlatformHealthPanel />
-      <OperationalExceptionsPanel />
+      <OperationalExceptionsPanel onNavigate={onNavigate} />
       <DeliveryOperationsPanel />
       <OperationalReliabilityPanel />
       <ConnectorLineagePanel />
