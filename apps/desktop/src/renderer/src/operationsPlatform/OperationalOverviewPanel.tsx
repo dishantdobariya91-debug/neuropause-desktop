@@ -39,12 +39,19 @@ export function OperationalOverviewPanel(): JSX.Element {
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [data, setData] = useState<OverviewData | null>(null);
   const [audit, setAudit] = useState<Audit>(null);
+  // S140 — honest "needs attention" count reused from the SAME governed QueryOperationalExceptions read
+  // (S139). `null` = the count could not be read (shown as "unavailable", never a fabricated 0).
+  const [exceptions, setExceptions] = useState<number | null>(null);
   const [message, setMessage] = useState<string>('');
 
   const refresh = useCallback(async () => {
     setState('loading');
     try {
-      const [ovw, aud] = await Promise.allSettled([ipc.platform.operationalOverview({ limit: 25 }), ipc.security.auditIntegrity()]);
+      const [ovw, aud, exc] = await Promise.allSettled([
+        ipc.platform.operationalOverview({ limit: 25 }),
+        ipc.security.auditIntegrity(),
+        ipc.platform.operationalExceptions({ limit: 1 }), // reuse S139 — we need only counts.total here
+      ]);
       if (ovw.status !== 'fulfilled' || !ovw.value.ok) {
         setMessage((ovw.status === 'fulfilled' && ovw.value.error?.message) || 'Operational overview is not available.');
         setState('error');
@@ -52,6 +59,10 @@ export function OperationalOverviewPanel(): JSX.Element {
       }
       setData((ovw.value.data ?? null) as unknown as OverviewData | null);
       setAudit(aud.status === 'fulfilled' ? ({ state: aud.value.state } as Audit) : null);
+      const excTotal = exc.status === 'fulfilled' && exc.value.ok
+        ? Number((((exc.value.data ?? {}) as { counts?: { total?: number } }).counts?.total) ?? 0)
+        : null;
+      setExceptions(excTotal);
       setState('ready');
     } catch {
       setMessage('Operational overview could not be loaded.');
@@ -85,6 +96,17 @@ export function OperationalOverviewPanel(): JSX.Element {
         <EmptyState title="Unavailable" hint={message} />
       ) : (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {/* S140 — Needs attention (unified operational exceptions count, reused from QueryOperationalExceptions) */}
+          <div className="surface-raised rounded-2xl px-3 py-2 shadow-card">
+            <div className="text-2xs font-semibold uppercase tracking-wide text-faint">Needs attention</div>
+            <div className="mt-1">
+              {exceptions === null ? (
+                <StatusBadge tone="gray" label="unavailable" />
+              ) : (
+                <StatusBadge tone={exceptions > 0 ? 'red' : 'green'} label={`${exceptions} exception${exceptions === 1 ? '' : 's'}`} />
+              )}
+            </div>
+          </div>
           {/* Application / Health */}
           <div className="surface-raised rounded-2xl px-3 py-2 shadow-card">
             <div className="text-2xs font-semibold uppercase tracking-wide text-faint">Health</div>

@@ -6,7 +6,7 @@
  * success; the honest empty state; and that a governed-read failure surfaces as unavailable without a leak.
  */
 import { beforeEach, describe, expect, it } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { route, clearRoutes } from './setup';
 import { IpcChannel } from '@neuropause/shared';
 import { OperationalExceptionsPanel } from '@renderer/operationsPlatform/OperationalExceptionsPanel';
@@ -58,5 +58,62 @@ describe('OperationalExceptionsPanel', () => {
     await waitFor(() => expect(screen.getByText('Unavailable')).toBeTruthy());
     const blob = container.textContent!.toLowerCase();
     for (const forbidden of ['secret', 'token', 'password', 'authorization', 'bearer']) expect(blob).not.toContain(forbidden);
+  });
+
+  // ---- S140 Evidence Trace cross-link ----
+
+  const excWithCorr = () => ({
+    ok: true,
+    data: {
+      counts: { retryingDeliveries: 1, heldReconciliations: 1, total: 2 },
+      exceptions: [
+        { kind: 'delivery_retrying', id: 'tx1', at: '2026-09-05T10:00:00.000Z', summary: 'Delivery retrying: SalesOrderCreated', eventType: 'SalesOrderCreated', aggregateId: 'agg-tx1', attempts: 2, lastError: 'sink unreachable', correlationId: 'corr-tx1' },
+        { kind: 'held_reconciliation', id: 'tenant-A::kA', at: '2026-09-05T13:00:00.000Z', summary: 'Held for reconciliation: kA', idempotencyKey: 'kA', state: 'HOLD', reason: 'RECONCILIATION_REQUIRED' },
+      ],
+    },
+    requestId: 'r', correlationId: 'c', operation: 'QueryOperationalExceptions',
+  });
+
+  it('shows "View trace" ONLY for an exception that genuinely carries a correlationId (held item has none)', async () => {
+    route(IpcChannel.PlatformCommandDispatch, (payload: unknown) => {
+      const op = (payload as { operation: string }).operation;
+      return op === 'QueryOperationalExceptions' ? excWithCorr() : { ok: true, data: { correlationId: 'corr-tx1', found: false, counts: { total: 0 }, entries: [] }, requestId: 'r', correlationId: 'c', operation: op };
+    });
+    render(<OperationalExceptionsPanel />);
+    await waitFor(() => expect(screen.getByText('Delivery retrying: SalesOrderCreated')).toBeTruthy());
+    // exactly one View trace action — the delivery item; the held item shows none (honest absence)
+    expect(screen.getAllByLabelText('View evidence trace').length).toBe(1);
+  });
+
+  it('opening the trace fetches QueryEvidenceTrace for the item’s correlationId and renders its entries', async () => {
+    let sawTraceOp = '';
+    let sawCorr: unknown;
+    route(IpcChannel.PlatformCommandDispatch, (payload: unknown) => {
+      const p = payload as { operation: string; payload?: { correlationId?: string } };
+      if (p.operation === 'QueryOperationalExceptions') return excWithCorr();
+      sawTraceOp = p.operation;
+      sawCorr = p.payload?.correlationId;
+      return { ok: true, data: { correlationId: 'corr-tx1', found: true, counts: { command: 1, delivered: 1, total: 2 }, entries: [
+        { source: 'command-journal', id: 'tx1', at: '2026-09-05T10:00:00.000Z', type: 'SalesOrderCreated', status: 'RETRYABLE' },
+        { source: 'delivered-event', id: 'evt1', at: '2026-09-05T10:00:02.000Z', type: 'SalesOrderCreated', status: 'delivered' },
+      ] }, requestId: 'r', correlationId: 'c', operation: p.operation };
+    });
+    render(<OperationalExceptionsPanel />);
+    await waitFor(() => expect(screen.getByText('Delivery retrying: SalesOrderCreated')).toBeTruthy());
+    fireEvent.click(screen.getByLabelText('View evidence trace'));
+    await waitFor(() => expect(screen.getAllByText(/SalesOrderCreated/).length).toBeGreaterThan(1));
+    expect(sawTraceOp).toBe('QueryEvidenceTrace');
+    expect(sawCorr).toBe('corr-tx1'); // the item's real correlationId, never manufactured
+  });
+
+  it('honest absence: an open trace with found:false shows "No correlation records"', async () => {
+    route(IpcChannel.PlatformCommandDispatch, (payload: unknown) => {
+      const op = (payload as { operation: string }).operation;
+      return op === 'QueryOperationalExceptions' ? excWithCorr() : { ok: true, data: { correlationId: 'corr-tx1', found: false, counts: { total: 0 }, entries: [] }, requestId: 'r', correlationId: 'c', operation: op };
+    });
+    render(<OperationalExceptionsPanel />);
+    await waitFor(() => expect(screen.getByText('Delivery retrying: SalesOrderCreated')).toBeTruthy());
+    fireEvent.click(screen.getByLabelText('View evidence trace'));
+    await waitFor(() => expect(screen.getByText(/No correlation records/)).toBeTruthy());
   });
 });

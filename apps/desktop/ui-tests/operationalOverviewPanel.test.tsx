@@ -28,11 +28,22 @@ const overview = (over: Record<string, unknown> = {}) => ({
   requestId: 'r', correlationId: 'c', operation: 'QueryOperationalOverview',
 });
 
+// S140 — the exceptions count is fetched from QueryOperationalExceptions on the SAME channel; route by op.
+const exc = (total: number) => ({ ok: true, data: { counts: { retryingDeliveries: total, heldReconciliations: 0, total }, exceptions: [] }, requestId: 'r', correlationId: 'c', operation: 'QueryOperationalExceptions' });
+const routePlatform = (over: () => Record<string, unknown>, total = 0): void => {
+  route(IpcChannel.PlatformCommandDispatch, (payload: unknown) => {
+    const op = (payload as { operation: string }).operation;
+    return op === 'QueryOperationalExceptions' ? exc(total) : over();
+  });
+};
+
 describe('OperationalOverviewPanel', () => {
   it('composes the overview read + audit-integrity read into posture tiles', async () => {
     let sawOverview = '';
     route(IpcChannel.PlatformCommandDispatch, (payload: unknown) => {
-      sawOverview = (payload as { operation: string }).operation;
+      const op = (payload as { operation: string }).operation;
+      if (op === 'QueryOperationalExceptions') return exc(0);
+      sawOverview = op;
       return overview();
     });
     route(IpcChannel.SecurityAuditIntegrityStatus, () => ({ state: 'SIGNED', algorithm: 'ed25519', keyId: 'k1', keyVersion: 1 }));
@@ -43,6 +54,26 @@ describe('OperationalOverviewPanel', () => {
     expect(screen.getByText(/80\.0% success/)).toBeTruthy();
     expect(screen.getByText(/degrading/)).toBeTruthy();
     expect(screen.getByText(/3 events · 2 connectors/)).toBeTruthy();
+  });
+
+  it('S140 — shows the honest "needs attention" exceptions count (reused from QueryOperationalExceptions)', async () => {
+    routePlatform(() => overview(), 2);
+    route(IpcChannel.SecurityAuditIntegrityStatus, () => ({ state: 'SIGNED' }));
+    render(<OperationalOverviewPanel />);
+    await waitFor(() => expect(screen.getByText('HEALTHY')).toBeTruthy());
+    expect(screen.getByText('2 exceptions')).toBeTruthy();
+  });
+
+  it('S140 — the exceptions count is honestly "unavailable" when that read fails (never a fabricated 0)', async () => {
+    route(IpcChannel.PlatformCommandDispatch, (payload: unknown) => {
+      const op = (payload as { operation: string }).operation;
+      if (op === 'QueryOperationalExceptions') return { ok: false, error: { code: 'UNAUTHORIZED', message: 'no' }, requestId: 'r', correlationId: 'c', operation: op };
+      return overview();
+    });
+    route(IpcChannel.SecurityAuditIntegrityStatus, () => ({ state: 'SIGNED' }));
+    render(<OperationalOverviewPanel />);
+    await waitFor(() => expect(screen.getByText('HEALTHY')).toBeTruthy());
+    expect(screen.getAllByText('unavailable').length).toBeGreaterThan(0);
   });
 
   it('degrades gracefully when the audit-integrity read is unavailable', async () => {

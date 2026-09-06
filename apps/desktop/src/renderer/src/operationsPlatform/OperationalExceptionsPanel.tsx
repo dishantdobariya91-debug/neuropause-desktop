@@ -9,12 +9,20 @@
  * Center; delivery retry is undefined policy and OUT OF SCOPE). It renders exactly the sanitized items the
  * main process returns and NEVER hardcodes success — a retrying/held item visibly stays an exception. It
  * invents no severity, priority, or SLA — it is a pure union ordered most-recent-first.
+ *
+ * S140 — each exception that GENUINELY carries a correlationId (only `delivery_retrying` items do; held
+ * reconciliations carry none) offers a read-only "View trace" that opens its EXISTING Evidence Trace via the
+ * governed `QueryEvidenceTrace` read (S126). correlationId is NEVER manufactured and NEVER used as a tenant
+ * selector; an item with no correlationId shows NO trace action (honest absence — no fuzzy/temporal inference).
  */
 import { useCallback, useEffect, useState } from 'react';
 import { ipc } from '@renderer/lib/ipc';
 import { OpsPanel, StatusBadge } from '@renderer/operations/primitives';
 import type { OpsTone } from '@renderer/operations/lib';
 import { EmptyState, LoadingBlock } from '@renderer/operationsCenter/primitives';
+
+interface TraceEntry { source?: string; id: string; at?: string; type?: string; status?: string | null }
+interface TraceData { found?: boolean; counts?: { total?: number }; entries?: TraceEntry[] }
 
 interface ExceptionRow {
   kind: 'delivery_retrying' | 'held_reconciliation';
@@ -49,6 +57,72 @@ function kindLabel(kind: string): string {
 }
 
 const EMPTY_COUNTS: Counts = { retryingDeliveries: 0, heldReconciliations: 0, total: 0 };
+
+/**
+ * S140 — read-only Evidence Trace cross-link for a SINGLE exception that genuinely carries a correlationId.
+ * Lazily opens the EXISTING governed `QueryEvidenceTrace` read (S126); never manufactures a correlationId,
+ * never mutates, and surfaces `found:false` honestly ("no correlation records"). Rendered only by callers
+ * that already verified a non-empty correlationId — so a held reconciliation (no correlationId) never mounts it.
+ */
+function ExceptionTrace({ correlationId }: { correlationId: string }): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const [state, setState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [trace, setTrace] = useState<TraceData | null>(null);
+
+  const load = useCallback(async () => {
+    setState('loading');
+    try {
+      const resp = await ipc.platform.evidenceTrace({ correlationId });
+      if (!resp.ok) { setState('error'); return; }
+      setTrace((resp.data ?? null) as unknown as TraceData | null);
+      setState('ready');
+    } catch {
+      setState('error');
+    }
+  }, [correlationId]);
+
+  const onToggle = (): void => {
+    const next = !open;
+    setOpen(next);
+    if (next && state === 'idle') void load();
+  };
+
+  const entries = trace?.entries ?? [];
+  return (
+    <div className="mt-1">
+      <button type="button" onClick={onToggle} aria-label="View evidence trace" className="text-2xs text-muted underline-offset-2 hover:text-ink hover:underline">
+        {open ? 'Hide trace' : 'View trace'}
+      </button>
+      {open && (
+        <div className="mt-1 rounded-xl border border-[var(--hairline)] [background:var(--fill-1)] p-2">
+          {state === 'loading' ? (
+            <div className="text-2xs text-faint">Loading trace…</div>
+          ) : state === 'error' ? (
+            <div className="text-2xs text-faint">Evidence trace is unavailable.</div>
+          ) : !trace?.found || entries.length === 0 ? (
+            <div className="text-2xs text-faint">No correlation records for this exception.</div>
+          ) : (
+            <ul className="space-y-1">
+              {entries.map((e) => (
+                <li key={`${e.source ?? 's'}:${e.id}`} className="text-2xs text-faint">
+                  <span className="text-ink">{e.type ?? '—'}</span>
+                  {e.status ? ` · ${e.status}` : ''}
+                  {e.at ? ` · ${e.at}` : ''}
+                  {e.source ? ` · ${e.source}` : ''}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A non-empty, genuinely-present correlationId — never fabricated. */
+function traceableCorrelationId(r: ExceptionRow): string | null {
+  return typeof r.correlationId === 'string' && r.correlationId.trim() !== '' ? r.correlationId.trim() : null;
+}
 
 export function OperationalExceptionsPanel(): JSX.Element {
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -102,20 +176,27 @@ export function OperationalExceptionsPanel(): JSX.Element {
         <EmptyState title="Nothing needs attention" hint="Retrying deliveries and held reconciliations will appear here as they occur." />
       ) : (
         <div className="surface-raised divide-y divide-[var(--hairline)] rounded-2xl px-4 shadow-card">
-          {rows.map((r) => (
-            <div key={`${r.kind}:${r.id}`} className="flex items-center gap-3 py-2.5">
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium text-ink">{r.summary}</div>
-                <div className="mt-0.5 text-2xs text-faint">
-                  {r.kind === 'delivery_retrying'
-                    ? `${r.aggregateId ? `${r.aggregateId} · ` : ''}attempts: ${r.attempts ?? 0}${r.lastError ? ` · ${r.lastError}` : ''}`
-                    : `${r.state ?? '—'}${r.reason ? ` · ${r.reason}` : ''}`}
-                  {` · ${r.at}`}
+          {rows.map((r) => {
+            const corr = traceableCorrelationId(r);
+            return (
+              <div key={`${r.kind}:${r.id}`} className="py-2.5">
+                <div className="flex items-center gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium text-ink">{r.summary}</div>
+                    <div className="mt-0.5 text-2xs text-faint">
+                      {r.kind === 'delivery_retrying'
+                        ? `${r.aggregateId ? `${r.aggregateId} · ` : ''}attempts: ${r.attempts ?? 0}${r.lastError ? ` · ${r.lastError}` : ''}`
+                        : `${r.state ?? '—'}${r.reason ? ` · ${r.reason}` : ''}`}
+                      {` · ${r.at}`}
+                    </div>
+                  </div>
+                  <StatusBadge tone={kindTone(r.kind)} label={kindLabel(r.kind)} />
                 </div>
+                {/* S140 — Evidence Trace cross-link ONLY when a genuine correlationId is present. */}
+                {corr ? <ExceptionTrace correlationId={corr} /> : null}
               </div>
-              <StatusBadge tone={kindTone(r.kind)} label={kindLabel(r.kind)} />
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </OpsPanel>
