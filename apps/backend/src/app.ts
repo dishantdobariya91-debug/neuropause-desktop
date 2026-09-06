@@ -7,6 +7,7 @@ import { logger } from './config/logger';
 import { requestId } from './middleware/requestId';
 import { errorHandler, notFoundHandler } from './middleware/error';
 import { createAuthRouter } from './auth/router';
+import { createPilotRouter } from './pilot/router';
 import { createStoreRouter } from './store/router';
 import { createOrganizationsRouter } from './organizations/router';
 import { createPgOrgRepository } from './organizations/repository';
@@ -108,6 +109,7 @@ export function createApp(): Express {
   });
 
   app.use('/auth', createAuthRouter());
+  app.use('/pilot', requireAuth, createPilotRouter());
   // Account flows: protect verification-request, rate-limit reset-request.
   app.use('/auth/request-verification', requireAuth);
   app.use(

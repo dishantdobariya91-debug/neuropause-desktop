@@ -98,3 +98,30 @@ export const emailAuth = {
     return r;
   },
 };
+
+export interface PilotStatus {
+  enrollment: { id: string; state: string; startedAt: string } | null;
+  consentVersion: string | null;
+  day: number | null;
+  day7Ready: boolean;
+  eventCount: number;
+}
+export interface Day7Report {
+  day: number;
+  activeDays: number;
+  eventCounts: Record<string, number>;
+  feedback: Array<Record<string, unknown>>;
+  crashes: string;
+  osUsage: string;
+  state: string;
+}
+export const pilot = {
+  consent: (version: string) => req<unknown>('/pilot/consent', { method: 'POST', body: JSON.stringify({ version }) }),
+  enroll: () => req<unknown>('/pilot/enroll', { method: 'POST' }),
+  status: () => req<PilotStatus>('/pilot/status'),
+  event: (eventType: string, metadata: Record<string, unknown> = {}) =>
+    req<unknown>('/pilot/events', { method: 'POST', body: JSON.stringify({ eventType, metadata }) }),
+  day7: () => req<Day7Report>('/pilot/day7'),
+  decision: (targetState: string, decision: string, reason: string) =>
+    req<unknown>('/pilot/decision', { method: 'POST', body: JSON.stringify({ targetState, decision, reason }) }),
+};
