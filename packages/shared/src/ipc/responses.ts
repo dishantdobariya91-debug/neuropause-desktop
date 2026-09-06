@@ -1007,6 +1007,8 @@ export interface IpcResponseMap {
   'sandbox:execution.timeline': ExecutionTimelineEntry[];
   'sandbox:queue.state': ExecutionQueueState;
   'sandbox:artifact.list': Artifact[];
+  // FG-S149-SANDBOX-ARTIFACT-GET — fetch one artifact (metadata + inline content) by id.
+  'sandbox:artifact.get': Artifact | null;
   'sandbox:result.get': RunResult | null;
   'sandbox:report.get': SandboxReport | null;
   'sandbox:report.generate': SandboxReport | { error: string };

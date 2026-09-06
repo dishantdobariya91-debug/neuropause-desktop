@@ -2457,6 +2457,10 @@ export const ipc = {
     queueState: (workspaceId?: string) => invoke(IpcChannel.SandboxQueueState, { workspaceId }),
     artifacts: (executionId: string, kind?: ArtifactKind) =>
       invoke(IpcChannel.SandboxArtifactList, { executionId, kind }),
+    // S150 — fetch one artifact (metadata + inline content) by id. Reads gate on sandbox:read; the
+    // renderer sends ONLY the id (workspace/execution tenant boundary is server-resolved). Typed via the
+    // FG-S149 IpcResponseMap entry (no rawInvoke). Missing/denied → null → honest empty state.
+    artifact: (id: string) => invoke(IpcChannel.SandboxArtifactGet, { id }),
     result: (executionId: string) => invoke(IpcChannel.SandboxResultGet, { executionId }),
     report: (executionId: string) => invoke(IpcChannel.SandboxReportGet, { executionId }),
     datasets: (workspaceId?: string) => invoke(IpcChannel.SandboxDatasetList, { workspaceId }),
