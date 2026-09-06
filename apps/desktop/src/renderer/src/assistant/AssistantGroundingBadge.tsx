@@ -27,19 +27,25 @@ interface GroundingData {
   context?: GroundingItem[];
 }
 
-export function AssistantGroundingBadge({ correlationId }: { correlationId?: string }): JSX.Element {
+export function AssistantGroundingBadge({ correlationId, question }: { correlationId?: string; question?: string }): JSX.Element {
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [data, setData] = useState<GroundingData | null>(null);
 
+  // S137 — the exact preceding user question is the relevance lens for THIS turn's grounding, so the badge
+  // reflects the same relevance the Brain used. A blank/absent question keeps the S136 no-query behavior
+  // (never fabricated). It is a relevance signal only — never a tenant/context selector or an authorization.
+  const lens = typeof question === 'string' && question.trim() !== '' ? question.trim() : '';
+
   const load = useCallback(async () => {
     setState('loading');
     try {
-      // The SAME grounding the live assistant receives (S133 posture + S135 connector intelligence),
-      // scoped to this turn's correlation. Read-only; no AI turn, no execution, no mutation.
+      // The SAME grounding the live assistant receives (S130 relevance + S133 posture + S135 connector
+      // intelligence), scoped to this turn's correlation. Read-only; no AI turn, no execution, no mutation.
       const resp = await ipc.platform.evidenceContext({
         includePosture: true,
         includeConnectorIntel: true,
+        ...(lens ? { relevanceQuery: lens } : {}),
         ...(correlationId ? { correlationId } : {}),
       });
       if (!resp.ok) { setState('error'); return; }
@@ -48,7 +54,7 @@ export function AssistantGroundingBadge({ correlationId }: { correlationId?: str
     } catch {
       setState('error');
     }
-  }, [correlationId]);
+  }, [correlationId, lens]);
 
   const onToggle = (): void => {
     const next = !open;
@@ -85,6 +91,7 @@ export function AssistantGroundingBadge({ correlationId }: { correlationId?: str
                 {data?.postureIncluded ? <StatusBadge tone="green" label="Posture included" /> : null}
                 {data?.connectorIntelIncluded ? <StatusBadge tone="blue" label="Connector intelligence included" /> : null}
                 {data?.relevanceRanked ? <StatusBadge tone="blue" label="Relevance ranked" /> : null}
+                {lens && data?.relevanceRanked ? <StatusBadge tone="green" label="Grounding matched to this question" /> : null}
                 {provenanceKinds.length > 0 ? <StatusBadge tone="gray" label={`Provenance: ${provenanceKinds.join(', ')}`} /> : null}
               </div>
               <div className="mt-2 text-2xs text-faint">
