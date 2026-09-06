@@ -1243,6 +1243,11 @@ export const ipc = {
     forget: (ids: string[]) => invoke(IpcChannel.MemoryForget, { ids }),
     counts: () => invoke(IpcChannel.MemoryCounts),
     rebuild: () => invoke(IpcChannel.MemoryRebuild),
+    // S148 — embed this tenant's existing memories into its cloud vector namespace so semantic recall
+    // covers them (memory:backfill). RBAC operations:manage, org server-resolved (no renderer id), gated
+    // by the memoryMaySync egress predicate, idempotent per the existing backfill semantics. Typed via the
+    // frozen IpcResponseMap entry added under FG-S148-MEMORY-BACKFILL (no rawInvoke).
+    backfill: () => invoke(IpcChannel.MemoryBackfill),
     onChange: (cb: (counts: MemoryCounts) => void) =>
       subscribe(IpcChannel.MemoryEventBroadcast, cb),
   },

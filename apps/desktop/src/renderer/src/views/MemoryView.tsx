@@ -74,6 +74,11 @@ export function MemoryView(): JSX.Element {
   // principal and no-ops without an active org. Truthful status, never a fabricated success.
   const [rebuilding, setRebuilding] = useState(false);
   const [rebuildMsg, setRebuildMsg] = useState<string | null>(null);
+  // S148 — governed semantic-index backfill (memory:backfill, operations:manage). Embeds this tenant's
+  // existing memories into its cloud vector namespace (gated by memoryMaySync egress); org is
+  // server-resolved and it no-ops without an active org. Idempotent per the existing backfill semantics.
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillMsg, setBackfillMsg] = useState<string | null>(null);
 
   const recall = useCallback(async (text: string, k: MemoryKind | 'all') => {
     setLoading(true);
@@ -137,6 +142,29 @@ export function MemoryView(): JSX.Element {
     }
   }, [recall, query, kind]);
 
+  // S148 — backfill (embed) existing memories into the tenant's cloud semantic namespace. The summary is
+  // read back truthfully: a no-active-org run is stated as local (not a failure); a permission/egress denial
+  // or transport failure is stated as such — never a fabricated success. Counts/embeddings are never faked.
+  const doBackfill = useCallback(async () => {
+    setBackfilling(true);
+    setBackfillMsg(null);
+    try {
+      const s = await ipc.memory.backfill();
+      if (s.skippedReason === 'no_active_org' || s.orgId === null) {
+        setBackfillMsg('Working locally — connect an organization to build a shared semantic index.');
+      } else {
+        setBackfillMsg(
+          `Semantic index updated — embedded ${s.embedded} of ${s.total} ${s.total === 1 ? 'memory' : 'memories'}` +
+            (s.failed > 0 ? ` (${s.failed} could not be embedded).` : '.'),
+        );
+      }
+    } catch {
+      setBackfillMsg("Couldn't build the semantic index — you may not have permission, or it is unavailable.");
+    } finally {
+      setBackfilling(false);
+    }
+  }, []);
+
   useEffect(() => {
     void ipc.memory
       .counts()
@@ -181,14 +209,29 @@ export function MemoryView(): JSX.Element {
             >
               {rebuilding ? 'Rebuilding…' : 'Rebuild index'}
             </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon="sparkles"
+              disabled={backfilling}
+              onClick={() => void doBackfill()}
+            >
+              {backfilling ? 'Building…' : 'Rebuild semantic index'}
+            </Button>
           </div>
         }
       />
 
-      {/* S147 — truthful outcome of the governed memory-index rebuild; never a fabricated success. */}
+      {/* S147/S148 — truthful outcomes of the governed memory-index rebuild + semantic backfill;
+          never a fabricated success. */}
       {rebuildMsg && (
         <div className="mb-3 rounded-xl border border-[var(--hairline)] [background:var(--fill-1)] px-3 py-2 text-xs text-muted">
           {rebuildMsg}
+        </div>
+      )}
+      {backfillMsg && (
+        <div className="mb-3 rounded-xl border border-[var(--hairline)] [background:var(--fill-1)] px-3 py-2 text-xs text-muted">
+          {backfillMsg}
         </div>
       )}
 

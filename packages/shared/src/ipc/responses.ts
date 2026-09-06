@@ -788,6 +788,19 @@ export interface IpcResponseMap {
   'memory:forget': { forgotten: number };
   'memory:counts': MemoryCounts;
   'memory:rebuild': MemoryCounts;
+  // FG-S148-MEMORY-BACKFILL — governed backfill summary (shape mirrors main's MemoryBackfillSummary;
+  // inline literal per this file's response-map convention, since the named type lives in main and the
+  // FG authorized exactly one additive entry here and no other frozen surface).
+  'memory:backfill': {
+    orgId: string | null;
+    total: number;
+    processed: number;
+    embedded: number;
+    skipped: number;
+    failed: number;
+    batches: number;
+    skippedReason?: 'no_active_org';
+  };
   'memory:exec-search': ExecutiveMemoryView[];
   'memory:exec-forget': { forgotten: boolean };
   'memory:exec-pin': ExecutiveMemoryView | null;
