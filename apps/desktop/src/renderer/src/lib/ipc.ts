@@ -1278,6 +1278,15 @@ export const ipc = {
     briefing: (period: BriefingPeriod, now?: string) =>
       invoke(IpcChannel.BriefingGenerate, { period, now }),
     executiveCenterSnapshot: () => invoke(IpcChannel.ExecutiveCenterSnapshot),
+    /**
+     * S145 — on-demand governed KPI capture (was dark). The channel (`kpi:capture`, RBAC `intelligence:read`)
+     * reads the ACTIVE tenant's inventory-products and writes the tenant-scoped kpi-snapshots + kpi-exceptions
+     * stores (idempotent + immutable per period). Tenant is resolved server-side via `activeTenantScope()`;
+     * the renderer supplies NO id (no arguments). Returns `{ ok, captured }` — `captured:false` when the
+     * period's snapshot already exists (a truthful no-op, not an error). Not in the frozen IpcResponseMap →
+     * untyped `rawInvoke`, narrowed at the call site.
+     */
+    kpiCapture: (): Promise<unknown> => rawInvoke(IpcChannel.KpiCapture, {}),
     voiceTurn: (transcript: string, displayName?: string) =>
       invoke(IpcChannel.VoiceTurn, { transcript, displayName }),
   },
