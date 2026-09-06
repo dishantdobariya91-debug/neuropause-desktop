@@ -7,6 +7,7 @@ import {
   type RetrievalStatus,
 } from '@renderer/lib/retrievalStatus';
 import { Icon, type IconName } from '@renderer/components/ui/Icon';
+import { Button } from '@renderer/components/ui/Button';
 import { EmptyState } from '@renderer/components/ui/EmptyState';
 import { Chip, ChipRow } from '@renderer/components/ui/pillTabs';
 import { ViewHeader, ViewScroll } from '@renderer/components/ui/Page';
@@ -68,6 +69,11 @@ export function MemoryView(): JSX.Element {
   const [retrieval, setRetrieval] = useState<RetrievalStatus | null>(null);
   /** A6 — set when recall produced NO answer at all, as distinct from an empty one. */
   const [failure, setFailure] = useState<string | null>(null);
+  // S147 — governed memory-index rebuild (memory:rebuild, operations:manage). Re-projects the
+  // memory set so recall + counts reflect the current store; runs under the server-resolved
+  // principal and no-ops without an active org. Truthful status, never a fabricated success.
+  const [rebuilding, setRebuilding] = useState(false);
+  const [rebuildMsg, setRebuildMsg] = useState<string | null>(null);
 
   const recall = useCallback(async (text: string, k: MemoryKind | 'all') => {
     setLoading(true);
@@ -113,6 +119,24 @@ export function MemoryView(): JSX.Element {
     }
   }, []);
 
+  // S147 — rebuild the memory index on demand. memory:rebuild re-projects the store, returns fresh
+  // counts, and is gated operations:manage server-side; a permission denial (or any failure) is shown
+  // truthfully rather than as a fake success. Recall is re-run so the visible results reflect the rebuild.
+  const doRebuild = useCallback(async () => {
+    setRebuilding(true);
+    setRebuildMsg(null);
+    try {
+      const c = await ipc.memory.rebuild();
+      setCounts(c);
+      setRebuildMsg('Memory index rebuilt.');
+      void recall(query, kind);
+    } catch {
+      setRebuildMsg("Couldn't rebuild the memory index — you may not have permission.");
+    } finally {
+      setRebuilding(false);
+    }
+  }, [recall, query, kind]);
+
   useEffect(() => {
     void ipc.memory
       .counts()
@@ -143,12 +167,30 @@ export function MemoryView(): JSX.Element {
         title="AI Memory"
         subtitle="Search everything you've worked on across every app, in plain language."
         right={
-          <span className="text-xs text-faint">
-            {total} {total === 1 ? 'memory' : 'memories'}
-            {counts?.lastBuiltAt ? ` · updated ${relativeTime(counts.lastBuiltAt)}` : ''}
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-faint">
+              {total} {total === 1 ? 'memory' : 'memories'}
+              {counts?.lastBuiltAt ? ` · updated ${relativeTime(counts.lastBuiltAt)}` : ''}
+            </span>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon="refresh"
+              disabled={rebuilding}
+              onClick={() => void doRebuild()}
+            >
+              {rebuilding ? 'Rebuilding…' : 'Rebuild index'}
+            </Button>
+          </div>
         }
       />
+
+      {/* S147 — truthful outcome of the governed memory-index rebuild; never a fabricated success. */}
+      {rebuildMsg && (
+        <div className="mb-3 rounded-xl border border-[var(--hairline)] [background:var(--fill-1)] px-3 py-2 text-xs text-muted">
+          {rebuildMsg}
+        </div>
+      )}
 
       <KnowledgeTopics onPick={(entity) => setQuery(entity)} />
 
