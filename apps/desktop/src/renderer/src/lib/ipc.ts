@@ -1701,6 +1701,13 @@ export const ipc = {
         expiresAt,
       }),
     revokeKey: (id: string) => invoke(IpcChannel.EcosystemKeysRevoke, { id }),
+    // S146 — rotate a key: mint a fresh secret (same name/scopes/expiry) and revoke the old id
+    // atomically, so a leaked secret is cut over without downtime. RBAC developer:manage, audited,
+    // tenant/owner resolved server-side (renderer sends only the id). Uses rawInvoke because
+    // `ecosystem:keys.rotate` is intentionally absent from the frozen IpcResponseMap (the S144
+    // precedent — a typed entry would require a frozen packages/shared change / FG token). Returns
+    // ApiKeyWithSecret (the new secret, shown once) or a { error } refusal for an unknown/revoked key.
+    rotateKey: (id: string): Promise<unknown> => rawInvoke(IpcChannel.EcosystemKeysRotate, { id }),
     oauthApps: () => invoke(IpcChannel.EcosystemOAuthList),
     createOAuthApp: (input: {
       name: string;
