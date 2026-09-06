@@ -465,6 +465,29 @@ function ModuleForm({
         onSaved();
         return;
       }
+      // S142 — a PAYMENT REVERSAL is server-side a CREATE of an immutable `finance-payment-reversals`
+      // record that books the compensating GL and re-opens the settled document. It is routed through the
+      // governed `ReverseCustomerPayment` / `ReverseVendorPayment` commands (dark since S61) — the SAME
+      // journaled/idempotent/event/outbox/audit spine as every other consequential finance write — instead
+      // of the non-governed CRUD door. The command selection follows the form's `originalKind`, but the
+      // SERVER sets `originalKind` from the command TYPE (never the payload), the original payment id is a
+      // TARGET (never authority), and the reversal module's guards refuse a non-cleared / bank-reconciled /
+      // foreign-tenant / already-reversed / nonexistent original. `reason` is required by the module.
+      if (mode === 'create' && module.id === 'finance-payment-reversals') {
+        const fields = input.fields ?? {};
+        const originalPaymentId = String(fields.originalPaymentId ?? '').trim();
+        const reason = String(fields.reason ?? '');
+        const isVendor = String(fields.originalKind ?? '') === 'vendor';
+        const gov = isVendor
+          ? await ipc.platform.reverseVendorPayment(originalPaymentId, reason, governedKey.current)
+          : await ipc.platform.reverseCustomerPayment(originalPaymentId, reason, governedKey.current);
+        if (!gov.ok) {
+          setErrors({ _: gov.error?.message ?? 'Could not reverse the payment.' });
+          return;
+        }
+        onSaved();
+        return;
+      }
       const res =
         mode === 'create'
           ? await ipc.enterpriseModules.create(module.id, input)

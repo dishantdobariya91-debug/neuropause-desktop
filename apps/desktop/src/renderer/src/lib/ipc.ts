@@ -816,6 +816,47 @@ export const ipc = {
       return promise;
     },
     /**
+     * GOVERNED PAYMENT REVERSAL (ERP Session 142) — the two remaining dark finance commands
+     * (`ReverseCustomerPayment` / `ReverseVendorPayment`, live since S61) go live in the UI. A
+     * reversal is server-side a CREATE of an immutable `finance-payment-reversals` record through
+     * the SAME governed command spine as the S43/S45/S49 creates: Application Boundary → per-command
+     * RBAC (`operations:manage`) → durable intent/journal → domain event → outbox → governance audit.
+     * The ORIGINAL payment id is a `target` (never authority — the module's own guards refuse a
+     * non-cleared / bank-reconciled / foreign-tenant / already-reversed / nonexistent original), and
+     * `originalKind` is set from the COMMAND TYPE server-side (never the payload), so the caller can
+     * never forge it. `reason` is required. `idempotencyKey` is stable per user gesture.
+     */
+    reverseCustomerPayment: (
+      originalPaymentId: string,
+      reason: string,
+      idempotencyKey: string,
+    ): Promise<PlatformCommandDispatchResponse> => {
+      const settle = perfRecorder.ipcStart(String(IpcChannel.PlatformCommandDispatch));
+      const promise = rawInvoke(IpcChannel.PlatformCommandDispatch, {
+        operation: 'ReverseCustomerPayment',
+        target: originalPaymentId,
+        payload: { reason },
+        idempotencyKey,
+      }) as Promise<PlatformCommandDispatchResponse>;
+      promise.then(settle, settle);
+      return promise;
+    },
+    reverseVendorPayment: (
+      originalPaymentId: string,
+      reason: string,
+      idempotencyKey: string,
+    ): Promise<PlatformCommandDispatchResponse> => {
+      const settle = perfRecorder.ipcStart(String(IpcChannel.PlatformCommandDispatch));
+      const promise = rawInvoke(IpcChannel.PlatformCommandDispatch, {
+        operation: 'ReverseVendorPayment',
+        target: originalPaymentId,
+        payload: { reason },
+        idempotencyKey,
+      }) as Promise<PlatformCommandDispatchResponse>;
+      promise.then(settle, settle);
+      return promise;
+    },
+    /**
      * GOVERNED PURCHASE REQUEST CREATE (ERP Session 49) — the buy-side twin of the S43 Sales
      * Order create. `status` is forced to `draft` by the command route (a client can never mint
      * a pre-approved request); tenant + actor are server-resolved.
