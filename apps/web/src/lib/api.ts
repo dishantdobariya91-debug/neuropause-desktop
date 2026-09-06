@@ -61,3 +61,27 @@ export const auth = {
   resetPassword: (token: string, password: string) =>
     req<unknown>('/auth/reset-password', { method: 'POST', body: JSON.stringify({ token, password }) }),
 };
+
+export interface AuthResult {
+  user: { id: string; email: string; displayName: string | null };
+  tokens: { accessToken: string; refreshToken?: string };
+}
+
+export const emailAuth = {
+  register: async (email: string, password: string): Promise<AuthResult> => {
+    const r = await req<AuthResult>('/auth/email/register', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    });
+    setToken(r.tokens.accessToken);
+    return r;
+  },
+  login: async (email: string, password: string): Promise<AuthResult> => {
+    const r = await req<AuthResult>('/auth/email/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    });
+    setToken(r.tokens.accessToken);
+    return r;
+  },
+};
