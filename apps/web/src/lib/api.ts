@@ -38,8 +38,15 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     },
   });
   if (!res.ok) {
+    if (res.status === 401) setToken(null); // expired/invalid — never keep a dead token around
     const body = await res.text().catch(() => '');
-    throw new Error(`${res.status} ${res.statusText}${body ? ` — ${body.slice(0, 200)}` : ''}`);
+    let detail = '';
+    try {
+      detail = JSON.parse(body)?.error ?? JSON.parse(body)?.message ?? '';
+    } catch {
+      /* non-JSON body: omit raw content from surfaced errors */
+    }
+    throw new Error(`${res.status} ${res.statusText}${detail ? ` — ${String(detail).slice(0, 120)}` : ''}`);
   }
   return (await res.json()) as T;
 }
@@ -53,7 +60,13 @@ export const auth = {
   providers: () => req<{ providers: ProviderInfo[] } | ProviderInfo[]>('/auth/providers'),
   startUrl: (provider: string) => `/auth/${encodeURIComponent(provider)}/start`,
   me: () => req<unknown>('/auth/me'),
-  logout: () => req<unknown>('/auth/logout', { method: 'POST' }),
+  logout: async () => {
+    try {
+      await req<unknown>('/auth/logout', { method: 'POST' });
+    } finally {
+      setToken(null);
+    }
+  },
   verifyEmail: (token: string) =>
     req<unknown>('/auth/verify-email', { method: 'POST', body: JSON.stringify({ token }) }),
   requestPasswordReset: (email: string) =>
