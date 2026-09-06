@@ -2,7 +2,7 @@
   "name": "neuropause-desktop",
   "version": "1.0.0-rc.25",
   "private": true,
-  "description": "NeuroPause Desktop — an AI operating layer for discovering, launching, connecting, and remembering AI work.",
+  "description": "NeuroPause Desktop \u2014 an AI operating layer for discovering, launching, connecting, and remembering AI work.",
   "license": "UNLICENSED",
   "engines": {
     "node": ">=20.11.0"
@@ -12,7 +12,8 @@
     "packages/*",
     "apps/backend",
     "apps/cloud",
-    "apps/desktop"
+    "apps/desktop",
+    "apps/web"
   ],
   "scripts": {
     "dev": "concurrently -n backend,desktop -c blue,green \"npm:dev:backend\" \"npm:dev:desktop\"",
