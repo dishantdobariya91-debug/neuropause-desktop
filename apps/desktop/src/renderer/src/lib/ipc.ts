@@ -604,6 +604,24 @@ export const ipc = {
       return promise;
     },
     /**
+     * S139 — governed OPERATIONAL EXCEPTIONS read. A tenant-safe, bounded, read-only projection that
+     * UNIFIES the operational follow-up signals that already exist (RETRYABLE deliveries + held
+     * reconciliations) over the durable command journal into ONE "needs attention" queue, on the SAME
+     * governed `platform:command.dispatch` READ branch (`QueryOperationalExceptions`). Tenant is
+     * server-resolved; the renderer supplies NO tenant. No invented severity/SLA. `kind` optionally
+     * narrows to one exception kind. No new channel/command/store — a read-only view, never a mutation.
+     */
+    operationalExceptions: (params: { limit?: number; kind?: 'delivery_retrying' | 'held_reconciliation' } = {}): Promise<PlatformCommandDispatchResponse> => {
+      const settle = perfRecorder.ipcStart(String(IpcChannel.PlatformCommandDispatch));
+      const promise = rawInvoke(IpcChannel.PlatformCommandDispatch, {
+        operation: 'QueryOperationalExceptions',
+        payload: params,
+        idempotencyKey: `opsexc-${Date.now().toString(36)}`,
+      }) as Promise<PlatformCommandDispatchResponse>;
+      promise.then(settle, settle);
+      return promise;
+    },
+    /**
      * S121 — governed CONNECTOR INBOUND LINEAGE read (S119/S120). A tenant-safe, bounded, read-only
      * projection of VERIFIED inbound-webhook events over the ONE EventBus ring, on the SAME governed
      * `platform:command.dispatch` READ branch (`QueryInboundLineage`). Tenant is server-resolved; the

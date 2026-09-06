@@ -26,6 +26,7 @@ import { EvidenceSearchPanel } from './EvidenceSearchPanel';
 import { GroundingTransparencyPanel } from './GroundingTransparencyPanel';
 import { OperationalHistoryPanel } from './OperationalHistoryPanel';
 import { DeliveryOperationsPanel } from './DeliveryOperationsPanel';
+import { OperationalExceptionsPanel } from './OperationalExceptionsPanel';
 import { AuditIntegrityPanel } from './AuditIntegrityPanel';
 import { ConnectorLineagePanel } from './ConnectorLineagePanel';
 import { OperationalReliabilityPanel } from './OperationalReliabilityPanel';
@@ -338,6 +339,7 @@ export function EopsPlatformTab(): JSX.Element {
 
       <OperationalOverviewPanel />
       <PlatformHealthPanel />
+      <OperationalExceptionsPanel />
       <DeliveryOperationsPanel />
       <OperationalReliabilityPanel />
       <ConnectorLineagePanel />

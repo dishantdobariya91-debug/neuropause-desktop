@@ -46,6 +46,7 @@ import { dispatchOutbox, type OutboxConsumer } from '../../platform/command/outb
 import { DeliveredEventLog } from '../../platform/command/deliveredEventLog';
 import { OPERATIONAL_READ_OPERATIONS, buildOperationalHistory, buildInboundLineage, buildReliabilitySummary, buildOperationalOverview, buildEvidenceSearch, buildEvidenceTrace, buildEvidenceContext } from '../../platform/command/operationalRead';
 import { buildDeliveryOperations } from '../../platform/command/deliveryOperations';
+import { buildOperationalExceptions } from '../../platform/command/operationalExceptions';
 import { platformBusRef } from '../../platform/platformBusRef';
 import { evidenceContextProvider } from '../../platform/evidenceContextProvider';
 import type { AiContextItem } from '@neuropause/shared';
@@ -209,7 +210,11 @@ export function buildPlatformCommandDispatchDef(deps: PlatformCommandDispatchDep
         const read =
           request.operation === 'QueryDeliveryOperations'
             ? buildDeliveryOperations(deps.journal, deps.deliveredLog, principal.tenantId, params)
-            : request.operation === 'QueryInboundLineage'
+            : request.operation === 'QueryOperationalExceptions'
+              // S139 — unified operational EXCEPTIONS queue: RETRYABLE deliveries + held reconciliations
+              // over the SAME per-tenant journal. Pure, read-only, bounded, no invented severity/SLA.
+              ? buildOperationalExceptions(deps.journal, principal.tenantId, params)
+              : request.operation === 'QueryInboundLineage'
               // S120 — read the S119 connector lineage from the ONE live platform event ring (tenant-scoped
               // by construction). The tenant is the server-resolved principal's, never a renderer claim.
               ? buildInboundLineage(platformBusRef.current ?? undefined, principal.tenantId, params)

@@ -61,6 +61,11 @@ export const OPERATIONAL_READ_OPERATIONS: ReadonlySet<string> = new Set([
   // tenant-scoped, credential-free, bounded, explicit per-item provenance; NO AI execution. Routed to
   // `buildEvidenceContext`. Reuses the frozen AiContextItem type (no contract change).
   'QueryEvidenceContext',
+  // S139 — governed OPERATIONAL EXCEPTIONS: a SIBLING read on this SAME governed branch that UNIFIES the
+  // operational follow-up signals that already exist (RETRYABLE deliveries + held reconciliations) over the
+  // SAME durable command journal into ONE "needs attention" queue. Pure, read-only, bounded, credential-free;
+  // no invented severity/SLA/priority. Routed to `buildOperationalExceptions`. No new channel/command/store.
+  'QueryOperationalExceptions',
 ]);
 
 export const MAX_LIMIT = 100;
