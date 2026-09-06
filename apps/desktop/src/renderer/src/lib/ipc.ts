@@ -2142,6 +2142,20 @@ export const ipc = {
     approvals: () => invoke(IpcChannel.FedApprovals),
     resolveApproval: (id: string, approve: boolean) =>
       invoke(IpcChannel.FedResolveApproval, { id, approve }),
+    /**
+     * S144 — the P13C-Round-5 legacy-policy MIGRATION/QUARANTINE surface goes live. These four channels
+     * were fully governed + tested in main (`main/federation/index.ts`) but had no renderer path. The
+     * STATUS channel is `federation:read` and returns only a COUNT (a quarantined row may name another
+     * org's action, so its contents are never disclosed here); the other three are `federation:manage`
+     * and audited. Tenant/org identity is server-resolved (`globalGovStore.callerOrg()`), never a
+     * renderer claim: claim/discard only affect the caller's own governance and refuse with no active org.
+     */
+    // These four channels are not in the frozen IpcResponseMap, so they use the untyped `rawInvoke` (the
+    // same escape the platform:command.dispatch helpers use); the provider narrows the shapes at the call site.
+    policyMigrationStatus: (): Promise<unknown> => rawInvoke(IpcChannel.FedPolicyMigrationStatus, {}),
+    quarantinedPolicies: (): Promise<unknown> => rawInvoke(IpcChannel.FedQuarantinedPolicies, {}),
+    claimPolicy: (id: string): Promise<unknown> => rawInvoke(IpcChannel.FedClaimPolicy, { id }),
+    discardPolicy: (id: string): Promise<unknown> => rawInvoke(IpcChannel.FedDiscardPolicy, { id }),
     audit: () => invoke(IpcChannel.FedAuditTrail),
     compliance: () => invoke(IpcChannel.FedCompliance),
     recordAction: (input: {
