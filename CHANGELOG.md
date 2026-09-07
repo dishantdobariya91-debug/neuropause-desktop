@@ -7,7 +7,30 @@ All notable changes to NeuroPause are documented here. The format is based on
 
 ## [Unreleased]
 
-_Everything in flight is described in the `1.0.0-rc.28` entry below._
+_Everything in flight is described in the `1.0.0-rc.29` entry below._
+
+## [1.0.0-rc.29] — the import journey waits for the refresh it started (2026-09-07)
+
+Version bumped from `1.0.0-rc.28` via the sanctioned tool (`npm run version:bump`). `v1.0.0-rc.28`
+was tagged but never published: both release workflows stopped in CI before packaging, Windows on a
+deterministic Gate-26 failure and macOS on a keychain-passphrase credential error. The tag remains
+bound to `a50e9d3` and is not moved, reused, or retro-fixed by this entry — a version is spent once
+a tag exists for it, so the corrected tree ships as rc.29.
+
+Test-only change. Gate 26's shell-journey test finished as soon as `EnterpriseRecordStore.list()`
+returned two rows, but those rows appear inside `governedImport`, roughly seventy lines before the
+`dp:import` handler returns. The test could therefore end mid-handler: `afterEach` deleted the temp
+directory under the still-running import, and the renderer's floating `onImported → loadHistory()`
+refresh landed its `dp:history` invoke after `clearRoutes()`, where it was recorded as unrouted and
+failed the *next* test. Only the slower Windows filesystem made the race deterministic, which is why
+it survived every macOS run and appeared as an unroutable channel in CI.
+
+The completion gate now waits for the History tab's count badge — the one signal on the Import tab
+that requires a *resolved* `dp:history`, since the badge renders only when `runs.length` is non-zero
+and `runs` is only ever assigned from an awaited `ipc.data.history()`. Reaching it entails that
+`dp:import` resolved, `onImported` ran, and the refresh completed while the routes were still
+registered. The Gate-26 store assertion and the unrouted-channel assertion are unchanged,
+`dp:history` is not allowlisted, no sleeps were added, and no production code is touched.
 
 ## [1.0.0-rc.28] — the packaged runtime boots again; unclassified channels now fail CI, not customers (2026-09-07)
 
