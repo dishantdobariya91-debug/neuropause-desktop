@@ -7,7 +7,28 @@ All notable changes to NeuroPause are documented here. The format is based on
 
 ## [Unreleased]
 
-_Everything in flight is described in the `1.0.0-rc.27` entry below._
+_Everything in flight is described in the `1.0.0-rc.28` entry below._
+
+## [1.0.0-rc.28] — the packaged runtime boots again; unclassified channels now fail CI, not customers (2026-09-07)
+
+Fixes the one defect that made the published `1.0.0-rc.27` Windows build enterprise-dead on
+arrival: S115 registered the workforce IPC channel `security:auditIntegrity.status` and wrote
+its intended `operations:read` scope into the handler comment, the channel-resource
+declaration, and the coverage-gate baseline — everywhere except `WORKFORCE_CHANNEL_PERMISSIONS`
+itself. The authz gate's composition-time throw (fail-closed, working as designed) then aborted
+`initRuntimeCore` in every packaged build: the window rendered, but secure IPC never registered
+and every governed operation hung. Proven against published rc.27 on a real Windows 11 Pro
+ARM64 runtime (S165: `Runtime core failed to initialize` in app.log; all acceptance harnesses
+watchdog-timed-out) and proven fixed there (S166: full boot-marker set, the 39-assertion
+payment-reversal suite, O2C and procurement journeys completed by clicks alone, restart
+durability with a byte-identical journal).
+
+One-line production change (`authzGate.ts` gains the missing classification) plus a new
+regression invariant, `authzGateCoverage.test.ts`: it derives the registered channel set from
+the workforce composition root itself — no second hand-maintained registry — and composes it
+through the real `withWorkforceAuthz`, so a registered-but-unclassified channel now fails CI
+instead of shipping. `1.0.0-rc.27` remains the previously published broken release; it is not
+retro-fixed by this entry.
 
 ## [1.0.0-rc.27] — windows ci repair; the lockfile moves with the manifests again (2026-09-07)
 
