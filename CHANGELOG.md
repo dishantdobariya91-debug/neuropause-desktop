@@ -7,8 +7,30 @@ All notable changes to NeuroPause are documented here. The format is based on
 
 ## [Unreleased]
 
-_No unreleased changes beyond the `1.0.0-rc.25` version-tool repair below; no rc.25 artifact,
-tag, or release exists._
+_Everything in flight is described in the `1.0.0-rc.27` entry below._
+
+## [1.0.0-rc.27] — windows ci repair; the lockfile moves with the manifests again (2026-09-07)
+
+Version bumped from `1.0.0-rc.26` via the sanctioned tool (`npm run version:bump`). The rc.26
+bump (S158) had repeated the rc.24-class mistake — a manual edit moved only the two manifests,
+leaving the lockfile's three version fields at `1.0.0-rc.25` — and the live five-field coherence
+pin caught it on the very next CI run (macos-release 34087275974: 10,843/10,845 passed, the two
+failures being exactly this pin and the missing-CHANGELOG gate). This bump re-syncs all five
+fields. Neither `v1.0.0-rc.25` nor `v1.0.0-rc.26` produced an artifact, release, or feed; both
+tags stopped in CI pre-publish (rc.25: lockfile missing the `apps/web` workspace, fixed in
+S158; rc.26: this version drift plus the pre-existing Windows failures).
+
+rc.27 also carries the Windows CI repair: the release suite's Windows job had been red since
+tests introduced after `v1.0.0-rc.17` first met a real Windows runner (rc.19/rc.20 failed at
+lint before tests ran; rc.24/rc.26 failed in the same store tests). Root cause was a class of
+POSIX-only filesystem assumptions in three independent tmp+rename persistence routines —
+rename-over-an-open-file (EPERM/EBUSY on win32), chmod-based directory write denial (inert on
+win32), ENOENT-vs-ENOTDIR errno mapping for a file-as-parent open (a genuine fail-open on
+Windows), and teardown of directories with in-flight writes. The repair applies the repo's own
+precedent (the `enterpriseRecordStore` EPERM/EACCES/EBUSY rename retry) to the un-hardened
+stores, closes the fail-open hydrate hole, and corrects the two POSIX-shaped test fixtures to
+force genuine cross-platform failures instead of chmod. No test was skipped, weakened, or
+platform-excluded.
 
 ## [1.0.0-rc.25] — version-tool repair: the lockfile now moves with the manifests (2026-09-04)
 

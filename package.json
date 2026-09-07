@@ -1,8 +1,8 @@
 {
   "name": "neuropause-desktop",
-  "version": "1.0.0-rc.26",
+  "version": "1.0.0-rc.27",
   "private": true,
-  "description": "NeuroPause Desktop \u2014 an AI operating layer for discovering, launching, connecting, and remembering AI work.",
+  "description": "NeuroPause Desktop — an AI operating layer for discovering, launching, connecting, and remembering AI work.",
   "license": "UNLICENSED",
   "engines": {
     "node": ">=20.11.0"
