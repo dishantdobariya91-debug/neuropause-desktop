@@ -297,6 +297,36 @@ class ActionRecordStore {
   /** F-P52 — the single in-flight load, shared by every concurrent caller. Reset whenever the source changes. */
   private loading: Promise<void> | null = null;
 
+  /**
+   * S162 — every persistence-bearing operation registers its settled form here so `flush()` has an
+   * explicit completion boundary. The gate's governance emit is fire-and-forget by design; without
+   * this boundary nothing (shutdown included) can await governance durability, and on Windows a
+   * teardown can rmdir a directory an un-awaited persist is still writing into (ENOTEMPTY).
+   */
+  private readonly inFlight = new Set<Promise<void>>();
+
+  private track<T>(work: Promise<T>): Promise<T> {
+    const settled: Promise<void> = work.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.inFlight.add(settled);
+    void settled.then(() => this.inFlight.delete(settled));
+    return work;
+  }
+
+  /**
+   * Resolves only after every currently in-flight persistence operation — including any
+   * fire-and-forget governance emit that has already started — has settled. Ordering, atomicity,
+   * and failure semantics of the underlying operations are unchanged; a failed persist still
+   * fails its own caller, and flush() itself never rejects.
+   */
+  async flush(): Promise<void> {
+    while (this.inFlight.size > 0) {
+      await Promise.all([...this.inFlight]);
+    }
+  }
+
   /** Test seam — point the store at a temp dir (no app dependency). */
   useDirForTests(dir: string): void {
     this.dirOverride = dir;
@@ -334,7 +364,11 @@ class ActionRecordStore {
     await this.loading;
   }
 
-  private async persist(): Promise<void> {
+  private persist(): Promise<void> {
+    return this.track(this.writeToDisk());
+  }
+
+  private async writeToDisk(): Promise<void> {
     const payload = JSON.stringify({ ...envelopeStamp(), records: this.records }, null, 2);
     const p = this.path();
     // Unique tmp: concurrent persists (the gate's fire-and-forget governance observer) must never
@@ -379,7 +413,17 @@ class ActionRecordStore {
    * `observe`, which defaults the same way when an outcome carries none), not a new one and not a minted id. A
    * refusal never reaches the CST, so no transition exists; fabricating one would create a second id-space.
    */
-  async observeGovernance(
+  observeGovernance(
+    request: GovernanceObserveRequest,
+    verdict: GovernanceVerdict,
+    ctx: ObserveContext,
+  ): Promise<void> {
+    // Tracked as a whole: the gate calls this fire-and-forget, so flush() must cover the window
+    // between call start and the inner persist(), not just the persist itself.
+    return this.track(this.observeGovernanceNow(request, verdict, ctx));
+  }
+
+  private async observeGovernanceNow(
     request: GovernanceObserveRequest,
     verdict: GovernanceVerdict,
     ctx: ObserveContext,

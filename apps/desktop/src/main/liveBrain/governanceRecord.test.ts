@@ -67,8 +67,9 @@ beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'np-routea-'));
   actionRecord.useDirForTests(dir);
 });
-afterEach(() => {
+afterEach(async () => {
   vi.restoreAllMocks();
+  await actionRecord.flush(); // S162: no rmdir while a fire-and-forget persist is still writing (win32 ENOTEMPTY)
   rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }); // win32: in-flight persist can hold files open
 });
 
