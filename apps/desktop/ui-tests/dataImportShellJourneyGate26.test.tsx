@@ -242,7 +242,25 @@ describe('data import reached through the real shell (Gate 26)', () => {
     // (6) Commit.
     await user.click(screen.getByRole('button', { name: 'Import' }));
 
-    // (7) THE PROOF THE PATH CARRIES DATA: the real store, on disk, has the rows.
+    // (7) WAIT FOR THE JOURNEY TO FINISH — not for its first observable side
+    // effect. Rows appear in the store inside `governedImport`, ~76 lines before
+    // the `dp:import` handler returns, so gating only on `store.list()` lets this
+    // test end mid-handler and `afterEach`'s `fs.rm(dir)` delete the temp dir out
+    // from under the still-running import. The renderer's refresh
+    // (`onImported={() => void loadHistory()}`) is a floating promise, so its
+    // `dp:history` invoke then lands after `clearRoutes()`, is recorded unrouted,
+    // and fails the NEXT test instead of this one.
+    //
+    // The History tab's count badge closes the whole chain: it renders only when
+    // `runs.length` is non-zero, and `runs` is only ever assigned from an AWAITED
+    // `ipc.data.history()` — the mount-time refresh provably returned [], since
+    // ImportPanel renders only once `history !== null`. So a count of 1 means
+    // dp:import resolved → onImported ran → the dp:history refresh COMPLETED,
+    // all while the routes were still registered.
+    await screen.findByRole('button', { name: 'Import another file' }, { timeout: 8000 });
+    await within(tabs).findByRole('tab', { name: 'History 1' }, { timeout: 8000 });
+
+    // (8) THE PROOF THE PATH CARRIES DATA: the real store, on disk, has the rows.
     await waitFor(
       async () => {
         const store = stores.get('crm-customers');
