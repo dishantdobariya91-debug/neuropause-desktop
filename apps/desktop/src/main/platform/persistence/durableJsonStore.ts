@@ -101,7 +101,20 @@ export class DurableJsonStore<T extends { id: string }> {
     const tmp = `${this.filePath}.${randomUUID()}.tmp`;
     try {
       await fs.writeFile(tmp, JSON.stringify(file), { mode: 0o600 });
-      await fs.rename(tmp, this.filePath); // atomic
+      // POSIX rename over an open destination is atomic; Windows fails it with
+      // EPERM/EACCES/EBUSY while a reader (backup copyFile, antivirus, indexer)
+      // briefly holds the file. Same retry contract as enterpriseRecordStore.persist.
+      for (let attempt = 1; ; attempt++) {
+        try {
+          await fs.rename(tmp, this.filePath);
+          break;
+        } catch (err) {
+          const code = (err as NodeJS.ErrnoException).code;
+          const retryable = code === 'EPERM' || code === 'EACCES' || code === 'EBUSY';
+          if (!retryable || attempt >= 5) throw err;
+          await new Promise((r) => setTimeout(r, 20 * attempt));
+        }
+      }
     } catch (err) {
       await fs.rm(tmp, { force: true }).catch(() => undefined); // never leave a stale tmp behind
       throw err;

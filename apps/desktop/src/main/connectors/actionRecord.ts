@@ -337,9 +337,28 @@ class ActionRecordStore {
   private async persist(): Promise<void> {
     const payload = JSON.stringify({ ...envelopeStamp(), records: this.records }, null, 2);
     const p = this.path();
-    const tmp = `${p}.tmp`;
-    await fs.writeFile(tmp, payload, 'utf8');
-    await fs.rename(tmp, p);
+    // Unique tmp: concurrent persists (the gate's fire-and-forget governance observer) must never
+    // collide on one temp path. Rename retry: Windows fails rename-over-an-open-file with
+    // EPERM/EACCES/EBUSY (reader, antivirus, indexer) where POSIX renames atomically — same
+    // contract as enterpriseRecordStore.persist.
+    const tmp = `${p}.${randomUUID()}.tmp`;
+    try {
+      await fs.writeFile(tmp, payload, 'utf8');
+      for (let attempt = 1; ; attempt++) {
+        try {
+          await fs.rename(tmp, p);
+          return;
+        } catch (err) {
+          const code = (err as NodeJS.ErrnoException).code;
+          const retryable = code === 'EPERM' || code === 'EACCES' || code === 'EBUSY';
+          if (!retryable || attempt >= 5) throw err;
+          await new Promise((r) => setTimeout(r, 20 * attempt));
+        }
+      }
+    } catch (err) {
+      await fs.rm(tmp, { force: true }).catch(() => undefined);
+      throw err;
+    }
   }
 
   /**

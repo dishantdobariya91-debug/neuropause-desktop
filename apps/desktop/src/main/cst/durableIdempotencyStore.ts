@@ -26,7 +26,7 @@
  * persistence failure at `acquire` rolls the in-memory reservation back and rethrows, so no
  * admission (and therefore no effect) is recorded.
  */
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { IdempotencyStorePort, IntentState } from '@neuropause/cst/dist/src/stores.js';
 import type { IdempotencyKey } from '@neuropause/cst/dist/src/types.js';
@@ -108,7 +108,18 @@ export class DurableIdempotencyStore implements IdempotencyStorePort {
     } catch (err) {
       // A file that never existed means nothing was consumed yet — a safe empty start. Any OTHER
       // read error (permissions, I/O) is NOT provably-empty, so fail closed rather than assume empty.
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+      // Windows maps a parent-path-is-a-file open to ENOENT where POSIX reports ENOTDIR, which
+      // would silently turn an UNREADABLE ledger into an empty one. ENOENT is provably-empty only
+      // when the parent either does not exist or is a real directory.
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        let parentIsFile = false;
+        try {
+          parentIsFile = !statSync(dirname(this.filePath)).isDirectory();
+        } catch {
+          /* parent absent (or its own parent is a file): nothing was ever persisted here */
+        }
+        if (!parentIsFile) return;
+      }
       throw new DurableStoreError(`unreadable idempotency store at ${this.filePath}: ${(err as Error).message}`);
     }
     let parsed: unknown;

@@ -42,7 +42,7 @@ beforeEach(async () => {
   await fs.mkdir(dataDir, { recursive: true });
 });
 afterEach(async () => {
-  await fs.rm(root, { recursive: true, force: true });
+  await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }); // win32: in-flight persist can hold files open
 });
 
 function manager(dir = dataDir, now = () => 1_700_000_000_000): BackupManager {

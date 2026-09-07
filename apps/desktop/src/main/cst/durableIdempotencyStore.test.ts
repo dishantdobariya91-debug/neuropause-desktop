@@ -8,7 +8,7 @@
  * unnecessary because the file is the ONLY channel between instances.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, rmdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { IdempotencyKey } from '@neuropause/cst/dist/src/types.js';
@@ -90,11 +90,14 @@ describe('DurableIdempotencyStore — fail-closed on missing / corrupt persisten
 
   it('persistence failure at acquire ⇒ rolls back the reservation and rethrows (no admission)', () => {
     const store = new DurableIdempotencyStore(path); // dir exists, file absent → fresh construction
-    chmodSync(dir, 0o500); // make the directory unwritable ⇒ the temp write fails
+    // A directory squatting on the store's file path makes the rename step fail on every
+    // platform (EISDIR on POSIX, EPERM/EACCES on Windows). chmod(dir, 0o500) — the previous
+    // fixture — only toggles FILE_ATTRIBUTE_READONLY on win32 and blocks nothing there.
+    mkdirSync(path);
     try {
       expect(() => store.acquire(K('k1'))).toThrow();
     } finally {
-      chmodSync(dir, 0o700); // restore so cleanup + the rollback assertion can write
+      rmdirSync(path); // restore so cleanup + the rollback assertion can write
     }
     // Rolled back: no phantom admission — the same key acquires FRESH once writability returns.
     expect(store.acquire(K('k1'))).toEqual({ fresh: true, state: 'IN_FLIGHT' });

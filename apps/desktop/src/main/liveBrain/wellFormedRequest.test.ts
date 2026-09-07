@@ -33,7 +33,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.restoreAllMocks();
-  rmSync(dir, { recursive: true, force: true });
+  rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }); // win32: in-flight persist can hold files open
 });
 
 const rows = async (): Promise<readonly ActionRecord[]> =>
